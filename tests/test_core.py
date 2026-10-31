@@ -265,18 +265,26 @@ def test_confirm_declined_on_terminal(sample: Group, answer: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("err_tty", "answer", "stderr"),
+    ("platform", "err_tty", "answer", "stderr"),
     [
-        (True, "", f"{CONFIRM_PROMPT}\nerror: aborted\n"),
-        (True, "n\n", f"{CONFIRM_PROMPT}n\nerror: aborted\n"),
-        (False, "", f"{CONFIRM_PROMPT}error: aborted\n"),
+        ("linux", True, "", f"{CONFIRM_PROMPT}\nerror: aborted\n"),
+        # The console echoes the Enter of Ctrl-Z + Enter, not CliRunner
+        ("win32", True, "", f"{CONFIRM_PROMPT}error: aborted\n"),
+        ("linux", True, "n\n", f"{CONFIRM_PROMPT}n\nerror: aborted\n"),
+        ("linux", False, "", f"{CONFIRM_PROMPT}error: aborted\n"),
     ],
-    ids=["eof-terminal", "no-terminal", "eof-piped"],
+    ids=["eof-terminal", "eof-windows-console", "no-terminal", "eof-piped"],
 )
 def test_confirm_aborted_after_the_prompt_line(
-    sample: Group, err_tty: bool, answer: str, stderr: str
+    sample: Group,
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    err_tty: bool,
+    answer: str,
+    stderr: str,
 ) -> None:
     """Assert EOF ends a terminal's prompt line before `error: aborted`."""
+    monkeypatch.setattr(sys, "platform", platform)
     result = invoke(
         sample, ["purge"], in_tty=True, err_tty=err_tty, input=answer
     )

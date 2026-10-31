@@ -320,7 +320,9 @@ def _aborted(err: Console, error: click.Abort) -> int:
     cause = error.__cause__ or error.__context__
     if isinstance(cause, KeyboardInterrupt):
         return _interrupted(err)
-    if isinstance(cause, EOFError) and err.is_terminal:
+    eof = isinstance(cause, EOFError)
+    # EOF on a Windows console is Ctrl-Z + Enter: the Enter ends the line
+    if eof and err.is_terminal and sys.platform != "win32":
         err.line()
     notice(err, level="error", message="aborted")
     return ExitCode.FAILURE
