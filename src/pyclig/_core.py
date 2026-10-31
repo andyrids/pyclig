@@ -153,20 +153,32 @@ class Command(click.Command):
     NOTE: `-d` is eager, so it takes effect even when a later option is
     invalid. Usage errors raised while parsing are bound to this command, so
     they show its usage.
+
+    Attributes:
+        examples: Example invocations, listed under `EXAMPLES:`.
     """
 
     context_class = Context
 
-    def __init__(self, name: str | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        name: str | None = None,
+        *,
+        examples: Iterable[str] = (),
+        **kwargs: Any,
+    ) -> None:
         """Create the command.
 
         Args:
             name: The command name.
+            examples: Example invocations, listed under `EXAMPLES:` after
+                the options & before the epilog.
             **kwargs: Keyword `click.Command` arguments;
                 `options_metavar` defaults to `[options]`.
         """
         kwargs.setdefault("options_metavar", "[options]")
         super().__init__(name, **kwargs)
+        self.examples = tuple(examples)
         self.params.append(
             click.Option(
                 ["-d", "--debug"],
@@ -195,6 +207,33 @@ class Command(click.Command):
                 error.ctx = ctx
             raise
 
+    def format_examples(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the `EXAMPLES:` section, one invocation per line.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        if not self.examples:
+            return
+        with formatter.section("Examples"):
+            for example in self.examples:
+                formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
+
+    def format_epilog(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the `EXAMPLES:` section, then the epilog.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        self.format_examples(ctx, formatter)
+        super().format_epilog(ctx, formatter)
+
 
 class Group(Command, click.Group):
     """A click group running the CLIG conventions (see module docstring).
@@ -203,7 +242,6 @@ class Group(Command, click.Group):
     `pyclig.Group`, so `@cli.command()` & `@cli.group()` inherit `-d`.
 
     Attributes:
-        examples: Example invocations, listed under `EXAMPLES:`.
         errors: Expected exception types, reported without a traceback.
     """
 
@@ -240,12 +278,12 @@ class Group(Command, click.Group):
         super().__init__(
             name,
             commands=commands,
+            examples=examples,
             invoke_without_command=invoke_without_command,
             subcommand_metavar=subcommand_metavar,
             context_settings=settings | (context_settings or {}),
             **kwargs,
         )
-        self.examples = tuple(examples)
         self.errors = errors
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -365,33 +403,6 @@ class Group(Command, click.Group):
             formatter.write_paragraph()
             formatter.write_text(hint)
         return formatter.getvalue().rstrip("\n")
-
-    def format_examples(
-        self, ctx: click.Context, formatter: click.HelpFormatter
-    ) -> None:
-        """Write the `EXAMPLES:` section, one invocation per line.
-
-        Args:
-            ctx: The group's context.
-            formatter: The help formatter.
-        """
-        if not self.examples:
-            return
-        with formatter.section("Examples"):
-            for example in self.examples:
-                formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
-
-    def format_epilog(
-        self, ctx: click.Context, formatter: click.HelpFormatter
-    ) -> None:
-        """Write the `EXAMPLES:` section, then the epilog.
-
-        Args:
-            ctx: The group's context.
-            formatter: The help formatter.
-        """
-        self.format_examples(ctx, formatter)
-        super().format_epilog(ctx, formatter)
 
 
 def group(

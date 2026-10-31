@@ -67,7 +67,11 @@ def cli(ctx: click.Context) -> None:
     ctx.ensure_object(dict)["root"] = "set by the group"
 
 
-@cli.command("list")
+@cli.command(
+    "list",
+    examples=["sample list --start 2026", "sample list --json"],
+    epilog="Items are listed oldest first.",
+)
 @pyclig.options.json_output()
 @click.option("--start", type=Year(), metavar="YEAR", help="Range start.")
 @pyclig.pass_context

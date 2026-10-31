@@ -38,19 +38,62 @@ def test_bare_invocation_with_debug_prints_concise_help(sample: Group) -> None:
     assert result.stdout.startswith("Sample data manager")
 
 
+def _headings(help_text: str) -> list[str]:
+    """Return the upper-case section headings of a help text, in order."""
+    return [
+        line
+        for line in help_text.splitlines()
+        if line.endswith(":") and line.isupper()
+    ]
+
+
 def test_full_help_layout(sample: Group) -> None:
     """Assert `--help` lists usage, options, commands, examples & epilog."""
     result = invoke(sample, ["--help"])
     assert result.exit_code == 0
     lines = result.stdout.splitlines()
     assert lines[:2] == ["USAGE:", "  sample [options] <command>"]
-    headings = [
-        line for line in lines if line.endswith(":") and line.isupper()
+    assert _headings(result.stdout) == [
+        "USAGE:",
+        "OPTIONS:",
+        "COMMANDS:",
+        "EXAMPLES:",
     ]
-    assert headings == ["USAGE:", "OPTIONS:", "COMMANDS:", "EXAMPLES:"]
     assert lines.index("EXAMPLES:") < lines.index(
         "  For more information see https://example.com/sample."
     )
+
+
+def test_command_help_lists_examples_before_epilog(sample: Group) -> None:
+    """Assert a command's `--help` lists its examples after the options."""
+    result = invoke(sample, ["list", "--help"])
+    assert result.exit_code == 0
+    assert _headings(result.stdout) == ["USAGE:", "OPTIONS:", "EXAMPLES:"]
+    lines = result.stdout.splitlines()
+    start = lines.index("EXAMPLES:")
+    assert lines[start + 1 : start + 3] == [
+        "  sample list --start 2026",
+        "  sample list --json",
+    ]
+    assert lines.index("  Items are listed oldest first.") > start + 2
+
+
+def test_command_help_without_examples(sample: Group) -> None:
+    """Assert a command without `examples=` has no `EXAMPLES:` section."""
+    result = invoke(sample, ["download", "--help"])
+    assert _headings(result.stdout) == ["USAGE:", "OPTIONS:"]
+
+
+def test_click_command_with_pyclig_class_takes_examples() -> None:
+    """Assert `click.command(cls=pyclig.Command)` accepts `examples=`."""
+
+    @click.command("tool", cls=pyclig.Command, examples=["tool --debug"])
+    def tool() -> None:
+        """Run the tool."""
+
+    result = CliRunner().invoke(tool, ["--help"])
+    assert result.exit_code == 0
+    assert "EXAMPLES:\n  tool --debug\n" in result.stdout
 
 
 def test_commands_listed_in_definition_order(sample: Group) -> None:
