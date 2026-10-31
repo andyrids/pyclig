@@ -265,10 +265,7 @@ def execute(func: Callable[[], object], state: State, *, prog: str) -> int:
     except (KeyboardInterrupt, Interrupted):
         return _interrupted(state.err)
     except click.Abort as error:
-        if isinstance(error.__cause__ or error.__context__, KeyboardInterrupt):
-            return _interrupted(state.err)
-        notice(state.err, level="error", message="aborted")
-        return ExitCode.FAILURE
+        return _aborted(state.err, error)
     except Escaped as escaped:
         return _failed(escaped.error, state, prog)
     except Exception as error:
@@ -311,6 +308,22 @@ def _interrupted(err: Console) -> int:
         err.line()
     notice(err, level="warning", message="interrupted")
     return ExitCode.INTERRUPT
+
+
+def _aborted(err: Console, error: click.Abort) -> int:
+    """Report a declined or interrupted prompt & return its exit code.
+
+    NOTE: click raises `Abort` from None at a prompt, so the Ctrl-C or EOF
+    behind it survives as `__context__`. EOF (Ctrl-D) leaves a terminal on
+    the prompt line, so the line is ended before `error: aborted`.
+    """
+    cause = error.__cause__ or error.__context__
+    if isinstance(cause, KeyboardInterrupt):
+        return _interrupted(err)
+    if isinstance(cause, EOFError) and err.is_terminal:
+        err.line()
+    notice(err, level="error", message="aborted")
+    return ExitCode.FAILURE
 
 
 def _failed(error: Exception, state: State, prog: str) -> int:

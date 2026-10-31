@@ -264,6 +264,26 @@ def test_confirm_declined_on_terminal(sample: Group, answer: str) -> None:
     assert result.stderr.endswith("error: aborted\n")
 
 
+@pytest.mark.parametrize(
+    ("err_tty", "answer", "stderr"),
+    [
+        (True, "", f"{CONFIRM_PROMPT}\nerror: aborted\n"),
+        (True, "n\n", f"{CONFIRM_PROMPT}n\nerror: aborted\n"),
+        (False, "", f"{CONFIRM_PROMPT}error: aborted\n"),
+    ],
+    ids=["eof-terminal", "no-terminal", "eof-piped"],
+)
+def test_confirm_aborted_after_the_prompt_line(
+    sample: Group, err_tty: bool, answer: str, stderr: str
+) -> None:
+    """Assert EOF ends a terminal's prompt line before `error: aborted`."""
+    result = invoke(
+        sample, ["purge"], in_tty=True, err_tty=err_tty, input=answer
+    )
+    assert result.exit_code == pyclig.ExitCode.FAILURE
+    assert result.stderr == stderr
+
+
 def test_confirm_interrupted_on_terminal(sample: Group) -> None:
     """Assert Ctrl-C at the prompt is an interrupt, exit 130."""
     result = invoke(sample, ["purge"], in_tty=True, input=InterruptingInput())

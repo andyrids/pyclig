@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `-d` prints each record as one plain line when STDERR is not a terminal; Rich layout otherwise
 
+### Fixed
+
+- `error: aborted` after EOF (Ctrl-D) at a prompt starts its own line on a terminal
+
 ## [0.1.0] - 2026-10-31
 
 ### Added
