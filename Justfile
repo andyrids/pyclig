@@ -14,7 +14,7 @@ set dotenv-load := true
 [group("DEV")]
 setup:
     uv sync
-    uv run pkgdx init
+    uv run prek install
 
 [doc("Generate a `detect-secrets` baseline for the repository")]
 [group("DEV")]

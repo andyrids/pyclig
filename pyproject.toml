@@ -25,10 +25,12 @@ dependencies = ["rich~=15.0"]
 
 [dependency-groups]
 dev = [
-    "pkgdx~=0.5",
-    "coverage",
-    "pytest",
-    "pymarkdownlnt",
+    "coverage~=7.17",
+    "pytest~=9.0",
+    "pymarkdownlnt~=0.9",
+    "mypy~=2.4",
+    "prek~=0.5",
+    "ruff~=0.17",
 ]
 
 [project.urls]

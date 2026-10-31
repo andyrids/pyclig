@@ -7,7 +7,7 @@ recommended-context-tokens: 900
 
 # pyclig [`pyclig`]
 
-A Python Click wrapper with Command Line Interface Guidance (CLIG) paradigms.
+A Python Click wrapper with [Command Line Interface Guidance (CLIG)](https://clig.dev/) paradigms.
 
 This project adheres to [YAGNI](docs/guidance/standard-yagni.md) principles.
 

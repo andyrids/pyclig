@@ -1,0 +1,9 @@
+[tool.pymarkdown]
+extensions.markdown-tables.enabled = true
+extensions.front-matter.enabled = true
+extensions.front-matter.allow_blank_lines = true
+plugins.line-length.enabled = true
+plugins.line-length.heading_line_length = 120
+plugins.line-length.line_length = 100
+plugins.line-length.table_line_length = 100
+plugins.table-column-style.enabled = false

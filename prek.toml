@@ -1,0 +1,65 @@
+#:schema https://raw.githubusercontent.com/j178/prek/refs/heads/master/prek.schema.json
+
+# BUILTIN REPO HOOKS
+
+[[repos]]
+repo = "builtin"
+
+[[repos.hooks]]
+id = "check-toml"
+name = "Check TOML [Builtin]"
+
+[[repos.hooks]]
+id = "check-yaml"
+name = "Check YAML [Builtin]"
+
+# LOCAL REPO HOOKS
+
+[[repos]]
+repo = "local"
+
+# Use `pkgdx.standards` config
+[[repos.hooks]]
+id = "format"
+name = "Format [Ruff]"
+entry = "uv run ruff format"
+args = ["--config", "ruff.toml", "--exit-non-zero-on-format"]
+language = "system"
+types_or = ["python", "pyi"]
+require_serial = true
+pass_filenames = false
+
+# Use `pkgdx.standards` config
+[[repos.hooks]]
+id = "lint"
+name = "Lint [Ruff]"
+entry = "uv run ruff check"
+args = ["--config", "ruff.toml", "--fix", "--exit-non-zero-on-fix"]
+language = "system"
+types_or = ["python", "pyi"]
+require_serial = true
+pass_filenames = false
+verbose = true
+
+# Use `pkgdx.standards` config
+[[repos.hooks]]
+id = "typing"
+name = "Typing [Mypy]"
+entry = "uv run mypy"
+args = ["--config-file", "mypy.ini"]
+language = "system"
+types_or = ["python", "pyi"]
+exclude = "tests/"
+require_serial = true
+pass_filenames = false
+verbose = true
+
+[[repos.hooks]]
+id = "markdown"
+name = "Check Markdown [PyMarkdown]"
+entry = "uv run pymarkdown"
+args = ["--config", "pymarkdown.toml", "scan"]
+language = "system"
+types_or = ["markdown"]
+require_serial = true
+pass_filenames = true

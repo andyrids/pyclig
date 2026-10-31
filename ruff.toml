@@ -1,0 +1,57 @@
+exclude = []
+indent-width = 4
+line-length = 79
+
+[format]
+indent-style = "space"
+line-ending = "auto"
+quote-style = "double"
+
+[lint]
+select = [
+    "A",      # flake8-builtins (ruleset)
+    "ANN001", # flake8-annotations (missing-type-function-argument)
+    "ANN002", # flake8-annotations (missing-type-args)
+    "ANN003", # flake8-annotations (missing-type-kwargs)
+    "ANN201", # flake8-annotations (missing-return-type-undocumented-public-function)
+    "ANN202", # flake8-annotations (missing-return-type-private-function)
+    "D1",     # pydocstyle (undocumented-* ruleset)
+    "D400",   # pydocstyle (missing-trailing-period)
+    "D401",   # pydocstyle (non-imperative-mood)
+    "D403",   # pydocstyle (first-word-uncapitalized)
+    "D417",   # pydocstyle (undocumented-param)
+    "D419",   # pydocstyle (empty-docstring)
+    "E",      # pycodestyle-error (ruleset)
+    "ERA",    # eradicate (ruleset)
+    "F541",   # pyflakes (f-string-missing-placeholders)
+    "F401",   # pyflakes (unused-import)
+    "F841",   # pyflakes (unused-variable)
+    "G",      # flake8-logging-format (ruleset)
+    "I001",   # isort (unsorted-imports)
+    "I002",   # isort (missing-required-import)
+    "ISC",    # flake8-implicit-str-concat (ruleset)
+    "LOG",    # flake8-logging (logging ruleset)
+    "N804",   # pep8-naming (invalid-first-argument-name-for-class-method)
+    "N805",   # pep8-naming (invalid-first-argument-name-for-method)
+    "NPY001", # NumPy-specific rules (numpy-deprecated-type-alias)
+    "NPY003", # NumPy-specific rules (numpy-deprecated-function)
+    "PERF",   # perflint (ruleset)
+    "PYI034", # flake8-pyi (non-self-return-type
+    "RET",    # flake8-return (ruleset)
+    "T100",   # flake8-debugger (debugger)
+    "T201",   # flake8-print (print)
+    "TC001",  # flake8-type-checking (typing-only-first-party-import)
+    "TC002",  # flake8-type-checking (typing-only-third-party-import)
+    "TC003",  # flake8-type-checking (typing-only-standard-library-import)
+    "TC004",  # flake8-type-checking (runtime-import-in-type-checking-block)
+    "TRY002", # tryceratops (raise-vanilla-class)
+    "TRY004", # tryceratops (type-check-without-type-error)
+    "TRY300", # tryceratops (try-consider-else)
+    "TRY401", # tryceratops (verbose-log-message)
+    "UP",     # pyupgrade (lru-cache-with-maxsize-none)
+    "W",      # pycodestyle-warning (ruleset)
+    "C90",    # McCabe complexity (complex-structure)
+]
+
+[lint.pydocstyle]
+convention = "google"
