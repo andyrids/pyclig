@@ -122,3 +122,60 @@ The copier template generates most of the original anti-patterns. Its change lis
 
 - Replace the editable `pyclig` path sources in dkais & pkgdx with `pyclig~=0.1` from PyPI.
 - Close the tracking issues (dkais #6, pkgdx #6) by hand - their checklists do not link the issues.
+
+## Round 2 - the pkgdx proposal & candidate patterns
+
+pyclig 0.1.0 shipped first, so the ports could merge. The work below is on `feat/cli-patterns` in
+pyclig (0.2.0) and on stacked branches in the consumers: dkais `fix/date-range`, then
+`feat/cli-patterns`; pkgdx `fix/hook-tools`, then `feat/cli-patterns`.
+
+| Repository | Tests | Notes |
+| --- | --- | --- |
+| pyclig | 111 passed, 95% coverage | 3.11, 3.13 & 3.14; mypy clean, incl. `--platform linux` |
+| dkais | 124 passed | prek passes; no real `download` or `process` run |
+| pkgdx | 151 passed | prek passes; `pkgdx init` ledger identical before & after |
+
+### Built
+
+| Item | Where | Evidence (test names) |
+| --- | --- | --- |
+| Missing hook tool: `error:`, exit 1 | pkgdx | `..._missing_tool_exits_1`, all 5 shims |
+| Missing `git`: WARN, project root | pkgdx | `test_init_warns_..._without_git` |
+| `prek.toml` read & written as UTF-8 | pkgdx | `..._set_encoding_on_non_ascii_config` |
+| Non-UTF-8 TOML is a FAIL step | pkgdx | `..._fails_on_non_utf8_file` & 2 more |
+| PyMarkdown global options first | pkgdx | `..._moves_global_options_before_scan` |
+| `--start` after `--end`: exit 2 | dkais | `test_inverted_range_is_a_usage_error` |
+| No empty progress bar | dkais | `..._skips_transfer_when_nothing_pending` |
+| Per-command `examples=` | all | `test_command_help_lists_examples` |
+| Plain `-d` records off a terminal | pyclig | `test_logging.py` plain-format tests |
+| `pyclig.confirm` & `-f/--force` | pyclig, dkais | `..._without_terminal_needs_force` |
+| `-n/--dry-run` | pyclig, dkais | `..._dry_run_stops_after_plan` |
+| EOF at a prompt ends the line | pyclig | `..._aborted_after_the_prompt_line` |
+
+Every new test failed against the code before its fix, except the subprocess import test for an
+inverted range, which would have listed the real bucket.
+
+Notes:
+
+- PyMarkdown options move by an allow-list of its global options, checked against 0.9.41. An
+  earlier rule - split at the first existing path - broke `scan`'s own options, e.g. `-r docs`.
+  The short `-e` stays after `scan`, where it means `--exclude`.
+- `pyclig.confirm` fails with exit 2, not 1: the remedy is a change to the command line, and a
+  retrying script must not read it as a failed download.
+- **Breaking (dkais):** `download --all` without a terminal on STDIN needs `--force`.
+
+### Declined
+
+- `--plain`: `dkais list` already prints tab-separated rows off a terminal.
+- `-q/--quiet`: a flag on every command for output that is already plain when piped; `info()`
+  would need the run state.
+- `--no-input`: there is one prompt, and `--force` & the STDIN check cover scripts.
+- pkgdx `init -n`: its steps cannot be previewed without splitting each one; `--reset` is
+  explicit & `prek.toml` is tracked in Git.
+
+### Remaining
+
+- PyMarkdown: joined short options (`-dmd013`), `--` and argparse abbreviations stay after `scan`.
+- `pyclig.confirm` outside a pyclig run raises the consoles `RuntimeError`, worded for consoles.
+- With `2>log`, the confirmation prompt goes to the log.
+- The Windows-console EOF case (Ctrl-Z + Enter) is unit-tested, not checked on a real console.
