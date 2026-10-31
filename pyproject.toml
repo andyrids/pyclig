@@ -1,17 +1,18 @@
 [project]
 name = "pyclig"
 dynamic = ["version"]
-description = "A Python Click wrapper with Command Line Interface Guidance (CLIG) paradigms."
+description = "A Python Click wrapper with Command Line Interface Guidelines (CLIG) paradigms."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICEN[CS]E*", "COPYRIGHT"]
 authors = [{ name = "Andrew Ridyard", email = "developer.surface832@passmail.com" }]
 maintainers = [{ name = "Andrew Ridyard", email = "developer.surface832@passmail.com" }]
 requires-python = ">=3.11"
-keywords = []
+keywords = ["cli", "click", "clig", "rich"]
 classifiers = [
     # 3 - Alpha | 4 - Beta | 5 - Production/Stable
     "Development Status :: 4 - Beta",
+    "Environment :: Console",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3 :: Only",
@@ -21,7 +22,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Typing :: Typed",
 ]
-dependencies = ["rich~=15.0"]
+dependencies = ["click~=8.5", "rich~=15.0"]
 
 [dependency-groups]
 dev = [
@@ -56,13 +57,14 @@ packages = ["src/pyclig"]
 source = "vcs"
 
 [tool.hatch.version.raw-options]
-# lets SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PKGDX work under hatch-vcs
+# lets SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYCLIG work under hatch-vcs
 dist_name = "pyclig"
 local_scheme = "no-local-version"
 version_scheme = "guess-next-dev"
 
 [tool.pytest.ini_options]
 addopts = ["--import-mode=importlib"]
+filterwarnings = ["error"]
 log_cli = true
 log_cli_level = "INFO"
 testpaths = ["tests"]

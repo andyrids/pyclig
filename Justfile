@@ -10,23 +10,17 @@ set dotenv-load := true
 @_:
     just --list
 
-[doc("Setup development environment, pre-commit hooks & secrets baseline")]
+[doc("Setup development environment & pre-commit hooks")]
 [group("DEV")]
 setup:
     uv sync
     uv run prek install
 
-[doc("Generate a `detect-secrets` baseline for the repository")]
-[group("DEV")]
-secrets-baseline:
-    echo "NOTE: Run this once after initial setup & re-run after intentionally adding secrets to the codebase (e.g. test fixtures)."
-    uv run detect-secrets scan --exclude-files "(\.venv|\.secrets\.baseline|.*\.lock)" > .secrets.baseline
-
 [doc("Create `coverage` report")]
 [group("DEV")]
 coverage *FLAGS:
     @uv run coverage run -m pytest {{FLAGS}}
-    @uv run coverage report --show-missing --skip-covered --fail-under=75
+    @uv run coverage report --show-missing --skip-covered --fail-under=90
     @uv run coverage xml
     @uv run coverage html
 
