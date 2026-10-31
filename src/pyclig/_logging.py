@@ -20,7 +20,7 @@ License:
 
 import contextlib
 import logging
-from collections.abc import Iterator
+from collections.abc import Generator
 from datetime import datetime
 
 from rich.console import Console
@@ -111,7 +111,7 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
 
 
 @contextlib.contextmanager
-def scoped(name: str) -> Iterator[None]:
+def scoped(name: str) -> Generator[None, None, None]:
     """Restore the `name` logger's handlers, level & propagation on exit.
 
     Args:
