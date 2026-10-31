@@ -160,7 +160,10 @@ def ruff_format() -> NoReturn:
 ## Migrating from argparse
 
 - Each subcommand becomes a `@cli.command()`; shared options become one decorator stacking
-  `click.option`s.
+  `click.option`s. Commands are listed in the order they are added.
+- click shows a command's docstring as its help: put `\f` after the help paragraph, so the
+  `Args:` & `Returns:` sections stay out of `--help`. Pass `help=` for a description that is not
+  an imperative docstring line.
 - Custom argument types become `click.ParamType[T]` subclasses calling `self.fail()`.
 - `parser.error()` becomes `raise click.UsageError(...)` (or `ctx.fail()`).
 - A `type=` function checking a minimum becomes `click.IntRange(min=1)`.
