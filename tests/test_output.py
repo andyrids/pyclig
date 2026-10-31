@@ -1,6 +1,8 @@
 """Tests for `pyclig._output` - message primitives."""
 
 import io
+import itertools
+import threading
 
 import pytest
 from rich.console import Console
@@ -69,3 +71,24 @@ def test_hanging_indents_wrapped_lines() -> None:
     console, buffer = _console(tty=False, width=20)
     pyclig.hanging(console, head="✓", message="alpha beta gamma delta")
     assert buffer.getvalue().splitlines() == ["✓ alpha beta gamma", "  delta"]
+
+
+def test_wrapped_notices_from_threads_never_interleave() -> None:
+    """Assert a wrapped notice's lines stay together under threads."""
+    console, buffer = _console(tty=True, width=40)
+    message = "word " * 15
+
+    def emit() -> None:
+        for _ in range(20):
+            pyclig.notice(console, level="warning", message=message)
+
+    threads = [threading.Thread(target=emit) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    lines = buffer.getvalue().splitlines()
+    heads = [i for i, line in enumerate(lines) if "warning:" in line]
+    assert len(heads) == 8 * 20
+    assert {b - a for a, b in itertools.pairwise(heads)} == {3}

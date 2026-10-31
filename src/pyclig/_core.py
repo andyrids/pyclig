@@ -248,6 +248,20 @@ class Group(Command, click.Group):
         self.examples = tuple(examples)
         self.errors = errors
 
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        """List the subcommands in the order they were added.
+
+        NOTE: click sorts them by name; the order a CLI defines them in is
+        usually its workflow, e.g. `list`, `download`, `process`.
+
+        Args:
+            ctx: The group's context.
+
+        Returns:
+            The subcommand names.
+        """
+        return list(self.commands)
+
     def main(
         self,
         args: Sequence[str] | None = None,

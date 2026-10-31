@@ -53,6 +53,14 @@ def test_full_help_layout(sample: Group) -> None:
     )
 
 
+def test_commands_listed_in_definition_order(sample: Group) -> None:
+    """Assert `COMMANDS:` keeps the order the commands were defined in."""
+    lines = invoke(sample).stdout.splitlines()
+    start = lines.index("COMMANDS:") + 1
+    names = [line.split()[0] for line in lines[start : start + 3]]
+    assert names == ["list", "download", "process"]
+
+
 def test_short_help_option(sample: Group) -> None:
     """Assert `-h` is an alias of `--help`, on commands too."""
     assert invoke(sample, ["-h"]).stdout == invoke(sample, ["--help"]).stdout
