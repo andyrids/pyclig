@@ -174,13 +174,18 @@ def version(package: str) -> str:
 def _distribution(package: str) -> str:
     """Return the distribution providing `package`, else `package` itself.
 
-    NOTE: An editable install is not listed by `packages_distributions`;
-    `importlib.metadata` then matches the import name, normalised.
+    NOTE: Usually the distribution shares the import name, which is a cheap
+    lookup; `packages_distributions` scans every installed distribution, so
+    it is the fallback. An editable install is not listed by it.
     """
     from importlib import metadata
 
-    names = metadata.packages_distributions().get(package)
-    return names[0] if names else package
+    try:
+        metadata.distribution(package)
+    except metadata.PackageNotFoundError:
+        names = metadata.packages_distributions().get(package)
+        return names[0] if names else package
+    return package
 
 
 def _project_url(package: str) -> str | None:
