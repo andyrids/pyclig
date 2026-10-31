@@ -4,7 +4,25 @@ License:
     SPDX-License-Identifier: Apache-2.0
 """
 
-__all__: list[str] = []
+from pyclig import options
+from pyclig._core import Command, Context, Group, group, pass_context
+from pyclig._exit import ExitCode
+from pyclig._output import hanging, info, notice
+from pyclig._run import run
+
+__all__: list[str] = [
+    "Command",
+    "Context",
+    "ExitCode",
+    "Group",
+    "group",
+    "hanging",
+    "info",
+    "notice",
+    "options",
+    "pass_context",
+    "run",
+]
 
 
 def __getattr__(name: str) -> str:
@@ -20,10 +38,7 @@ def __getattr__(name: str) -> str:
         AttributeError: For any other name.
     """
     if name == "__version__":
-        from importlib import metadata
+        from pyclig._run import version
 
-        try:
-            return metadata.version("pyclig")
-        except metadata.PackageNotFoundError:
-            return "0.0.0+unknown"
+        return version("pyclig")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
