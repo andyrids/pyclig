@@ -176,7 +176,8 @@ def streams(ctx: pyclig.Context) -> None:
     click.echo("one")
     ctx.out.print("two")
     click.echo("three")
-    ctx.err.print(Text(f"out={ctx.out.is_terminal} err={ctx.err.is_terminal}"))
+    tty = f"out={ctx.out.is_terminal} err={ctx.err.is_terminal}"
+    ctx.err.print(Text(f"{tty} live={ctx.err.is_interactive}"))
 
 
 @cli.group()

@@ -40,14 +40,16 @@ def invoke(
     out_tty: bool = False,
     err_tty: bool = False,
     color: bool = False,
+    interactive: bool = False,
     width: int = 80,
     env: Mapping[str, str | None] | None = None,
     input: str | bytes | IO[Any] | None = None,  # noqa: A002 - click's own keyword
 ) -> Result:
     """Run `cli` in-process, as if STDOUT & STDERR were the given streams.
 
-    NOTE: Live displays never animate (`force_interactive=False`). The
-    application logger is restored when the run ends.
+    NOTE: Live displays only animate with `interactive`, so output stays
+    deterministic by default. The application logger is restored when the
+    run ends.
 
     Args:
         cli: The CLI.
@@ -55,6 +57,9 @@ def invoke(
         out_tty: Treat STDOUT as a terminal.
         err_tty: Treat STDERR as a terminal.
         color: Emit ANSI colour codes on both streams.
+        interactive: Treat the terminal streams as interactive, so code
+            gated on `console.is_interactive` (e.g. a spinner) runs - mock
+            the live display itself.
         width: The console width, in cells.
         env: Environment variables to set, or unset with None. Overrides
             the cleared defaults.
@@ -69,7 +74,7 @@ def invoke(
             Console(
                 stderr=stderr,
                 force_terminal=tty,
-                force_interactive=False,
+                force_interactive=interactive and tty,
                 width=width,
                 color_system="standard" if color else None,
                 legacy_windows=False,

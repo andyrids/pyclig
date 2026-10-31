@@ -20,7 +20,16 @@ def test_stream_tty_flags_independent(
 ) -> None:
     """Assert STDOUT & STDERR are terminals independently."""
     result = invoke(sample, ["streams"], out_tty=out_tty, err_tty=err_tty)
-    assert result.stderr == f"out={out_tty} err={err_tty}\n"
+    assert result.stderr == f"out={out_tty} err={err_tty} live=False\n"
+
+
+@pytest.mark.parametrize(("err_tty", "live"), [(True, True), (False, False)])
+def test_interactive_applies_to_terminal_streams(
+    sample: Group, err_tty: bool, live: bool
+) -> None:
+    """Assert `interactive=True` makes terminal streams interactive only."""
+    result = invoke(sample, ["streams"], err_tty=err_tty, interactive=True)
+    assert result.stderr.endswith(f"live={live}\n")
 
 
 def test_colour_variables_cleared(
