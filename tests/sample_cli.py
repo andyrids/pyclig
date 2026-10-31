@@ -174,6 +174,15 @@ def confirm() -> None:
 
 
 @cli.command()
+@pyclig.options.force()
+@pyclig.pass_context
+def purge(ctx: pyclig.Context, force: bool) -> None:
+    """Delete every sample item, once confirmed."""
+    pyclig.confirm(ctx, message="Delete every sample item?", force=force)
+    ctx.out.print("purged")
+
+
+@cli.command()
 @pyclig.pass_context
 def streams(ctx: pyclig.Context) -> None:
     """Interleave `click.echo` & console output, then report the TTYs."""

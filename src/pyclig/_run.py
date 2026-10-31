@@ -28,7 +28,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, TextIO
 
 import click
 from rich.console import Console
@@ -59,6 +59,8 @@ class State:
         package: The application package - its logger & distribution.
         errors: Expected exception types.
         debug: Whether `-d/--debug` was given.
+        in_tty: Whether STDIN is an interactive terminal, so a prompt can
+            be answered.
     """
 
     out: Console
@@ -66,6 +68,7 @@ class State:
     package: str
     errors: Errors = ()
     debug: bool = False
+    in_tty: bool = False
 
 
 class Interrupted(Exception):
@@ -126,8 +129,7 @@ def _console(*, stderr: bool) -> Console:
     falls back to its legacy Windows renderer, which drops colour, whenever
     the stream is not a console; a pipe is written with ANSI codes instead.
     """
-    stream = sys.stderr if stderr else sys.stdout
-    piped = not (hasattr(stream, "isatty") and stream.isatty())
+    piped = not is_tty(sys.stderr if stderr else sys.stdout)
     return Console(
         stderr=stderr,
         markup=False,
@@ -135,6 +137,21 @@ def _console(*, stderr: bool) -> Console:
         highlight=False,
         legacy_windows=False if sys.platform == "win32" and piped else None,
     )
+
+
+def is_tty(stream: TextIO | None) -> bool:
+    """Check whether a standard stream is a terminal.
+
+    NOTE: A standard stream is None under `pythonw`, & a replacement stream
+    may lack `isatty`.
+
+    Args:
+        stream: The stream, e.g. `sys.stdin`.
+
+    Returns:
+        Whether the stream is a terminal.
+    """
+    return stream is not None and hasattr(stream, "isatty") and stream.isatty()
 
 
 def package_of(func: object, default: str) -> str:
