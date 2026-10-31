@@ -3,6 +3,13 @@
 Each factory returns a `click.option` decorator; pass `help=` to describe
 the flag in the application's own terms.
 
+| Factory         | Flag              | Parameter     |
+| --------------- | ----------------- | ------------- |
+| `json_output()` | `--json`          | `json_output` |
+| `select_all()`  | `-a`, `--all`     | `select_all`  |
+| `force()`       | `-f`, `--force`   | `force`       |
+| `dry_run()`     | `-n`, `--dry-run` | `dry_run`     |
+
 ```python
 @cli.command()
 @pyclig.options.json_output()
@@ -65,3 +72,18 @@ def force(
         The option decorator.
     """
     return click.option("-f", "--force", is_flag=True, help=help)
+
+
+def dry_run(
+    *,
+    help: str = "Show what would be done, without doing it.",  # noqa: A002 - click's own keyword
+) -> Callable[[FC], FC]:
+    """Add `-n/--dry-run`, passed to the command as `dry_run`.
+
+    Args:
+        help: The flag's help text.
+
+    Returns:
+        The option decorator.
+    """
+    return click.option("-n", "--dry-run", is_flag=True, help=help)

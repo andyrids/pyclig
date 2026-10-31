@@ -1,6 +1,5 @@
 """Tests for `pyclig._run` - exit codes & error rendering."""
 
-import io
 import logging
 import subprocess
 import sys
@@ -11,7 +10,7 @@ import pytest
 import pyclig
 from pyclig import Group, _run
 from pyclig.testing import invoke
-from tests.conftest import SAMPLE, RunSample, sample_env
+from tests.conftest import SAMPLE, InterruptingInput, RunSample, sample_env
 
 # (args, message, failing command path)
 USAGE_ERRORS = [
@@ -177,21 +176,9 @@ def test_keyboard_interrupt_in_command(sample: Group) -> None:
     assert result.stderr == "warning: interrupted\n"
 
 
-class _InterruptingInput(io.BytesIO):
-    """STDIN that raises `KeyboardInterrupt` on the first read."""
-
-    def read(self, size: int | None = -1) -> bytes:
-        if size == 0:
-            return b""
-        raise KeyboardInterrupt
-
-    def read1(self, size: int | None = -1) -> bytes:
-        return self.read(size)
-
-
 def test_keyboard_interrupt_at_prompt(sample: Group) -> None:
     """Assert Ctrl-C at a prompt is an interrupt, not a declined prompt."""
-    result = invoke(sample, ["confirm"], input=_InterruptingInput())
+    result = invoke(sample, ["confirm"], input=InterruptingInput())
     assert result.exit_code == pyclig.ExitCode.INTERRUPT
     assert result.stderr == "warning: interrupted\n"
 

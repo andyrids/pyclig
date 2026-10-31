@@ -134,6 +134,53 @@ def pass_context(f: Callable[Concatenate[Context, P], R]) -> Callable[P, R]:
     return functools.update_wrapper(new_func, f)
 
 
+def confirm(ctx: click.Context, *, message: str, force: bool) -> None:
+    """Ask the user to confirm a large or destructive action.
+
+    | Case                      | Outcome                                    |
+    | ------------------------- | ------------------------------------------ |
+    | `force`                   | Returns, without a prompt                  |
+    | STDIN is not a terminal   | `error:` naming `--force`, usage - exit 2  |
+    | `y` / `yes`               | Returns                                    |
+    | `n`, empty answer, EOF    | `error: aborted` - exit 1                  |
+    | Ctrl-C                    | `warning: interrupted` - exit 130          |
+
+    NOTE: Without a terminal on STDIN nobody can answer, so the run fails
+    with a usage error that names the flag a script should pass. Call it
+    before starting any live display (`Progress`, `Status`): click writes
+    the prompt straight to STDERR, so `2>log` puts it in the log. Under
+    `CliRunner` (`pyclig.testing.invoke`) click also echoes the typed
+    answer to STDERR.
+
+    ```python
+    @cli.command()
+    @pyclig.options.force()
+    @pyclig.pass_context
+    def purge(ctx: pyclig.Context, force: bool) -> None:
+        \"\"\"Delete every archive.\"\"\"
+        pyclig.confirm(ctx, message="Delete every archive?", force=force)
+    ```
+
+    Args:
+        ctx: The command's context.
+        message: The question, e.g. `Delete 12 archives?`.
+        force: Skip the prompt, e.g. for `-f/--force`.
+
+    Raises:
+        click.UsageError: When STDIN is not a terminal.
+        click.Abort: When the prompt is declined or interrupted.
+    """
+    if force:
+        return
+    if not _require_state(ctx).in_tty:
+        raise click.UsageError(
+            "confirmation needed, but STDIN is not a terminal - "
+            "pass `--force` to proceed",
+            ctx=ctx,
+        )
+    click.confirm(message, default=False, abort=True, err=True)
+
+
 def _debug(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     """Switch the run's logging to `DEBUG` as soon as `-d` is parsed."""
     state = _state(ctx)
@@ -153,20 +200,32 @@ class Command(click.Command):
     NOTE: `-d` is eager, so it takes effect even when a later option is
     invalid. Usage errors raised while parsing are bound to this command, so
     they show its usage.
+
+    Attributes:
+        examples: Example invocations, listed under `EXAMPLES:`.
     """
 
     context_class = Context
 
-    def __init__(self, name: str | None = None, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        name: str | None = None,
+        *,
+        examples: Iterable[str] = (),
+        **kwargs: Any,
+    ) -> None:
         """Create the command.
 
         Args:
             name: The command name.
+            examples: Example invocations, listed under `EXAMPLES:` after
+                the options & before the epilog.
             **kwargs: Keyword `click.Command` arguments;
                 `options_metavar` defaults to `[options]`.
         """
         kwargs.setdefault("options_metavar", "[options]")
         super().__init__(name, **kwargs)
+        self.examples = tuple(examples)
         self.params.append(
             click.Option(
                 ["-d", "--debug"],
@@ -195,6 +254,33 @@ class Command(click.Command):
                 error.ctx = ctx
             raise
 
+    def format_examples(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the `EXAMPLES:` section, one invocation per line.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        if not self.examples:
+            return
+        with formatter.section("Examples"):
+            for example in self.examples:
+                formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
+
+    def format_epilog(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the `EXAMPLES:` section, then the epilog.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        self.format_examples(ctx, formatter)
+        super().format_epilog(ctx, formatter)
+
 
 class Group(Command, click.Group):
     """A click group running the CLIG conventions (see module docstring).
@@ -203,7 +289,6 @@ class Group(Command, click.Group):
     `pyclig.Group`, so `@cli.command()` & `@cli.group()` inherit `-d`.
 
     Attributes:
-        examples: Example invocations, listed under `EXAMPLES:`.
         errors: Expected exception types, reported without a traceback.
     """
 
@@ -240,12 +325,12 @@ class Group(Command, click.Group):
         super().__init__(
             name,
             commands=commands,
+            examples=examples,
             invoke_without_command=invoke_without_command,
             subcommand_metavar=subcommand_metavar,
             context_settings=settings | (context_settings or {}),
             **kwargs,
         )
-        self.examples = tuple(examples)
         self.errors = errors
 
     def list_commands(self, ctx: click.Context) -> list[str]:
@@ -287,11 +372,18 @@ class Group(Command, click.Group):
             **extra: Keyword `click.Context` arguments.
         """
         make_consoles = extra.pop("pyclig_consoles", _run.make_consoles)
+        in_tty = extra.pop("pyclig_in_tty", None)
         _run.configure_streams()
         out, err = make_consoles()
         prog = prog_name or self.name or "main"
         package = _run.package_of(self.callback, default=prog)
-        state = _run.State(out, err, package, self.errors)
+        state = _run.State(
+            out,
+            err,
+            package,
+            self.errors,
+            in_tty=_run.is_tty(sys.stdin) if in_tty is None else in_tty,
+        )
         click_main = super().main
         with _logging.scoped(package):
             _logging.configure(package, err, debug=False)
@@ -365,33 +457,6 @@ class Group(Command, click.Group):
             formatter.write_paragraph()
             formatter.write_text(hint)
         return formatter.getvalue().rstrip("\n")
-
-    def format_examples(
-        self, ctx: click.Context, formatter: click.HelpFormatter
-    ) -> None:
-        """Write the `EXAMPLES:` section, one invocation per line.
-
-        Args:
-            ctx: The group's context.
-            formatter: The help formatter.
-        """
-        if not self.examples:
-            return
-        with formatter.section("Examples"):
-            for example in self.examples:
-                formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
-
-    def format_epilog(
-        self, ctx: click.Context, formatter: click.HelpFormatter
-    ) -> None:
-        """Write the `EXAMPLES:` section, then the epilog.
-
-        Args:
-            ctx: The group's context.
-            formatter: The help formatter.
-        """
-        self.format_examples(ctx, formatter)
-        super().format_epilog(ctx, formatter)
 
 
 def group(

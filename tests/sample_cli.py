@@ -67,7 +67,11 @@ def cli(ctx: click.Context) -> None:
     ctx.ensure_object(dict)["root"] = "set by the group"
 
 
-@cli.command("list")
+@cli.command(
+    "list",
+    examples=["sample list --start 2026", "sample list --json"],
+    epilog="Items are listed oldest first.",
+)
 @pyclig.options.json_output()
 @click.option("--start", type=Year(), metavar="YEAR", help="Range start.")
 @pyclig.pass_context
@@ -167,6 +171,15 @@ def confirm() -> None:
     """Ask for confirmation, aborting when declined."""
     click.confirm("go?", abort=True)
     click.echo("went")
+
+
+@cli.command()
+@pyclig.options.force()
+@pyclig.pass_context
+def purge(ctx: pyclig.Context, force: bool) -> None:
+    """Delete every sample item, once confirmed."""
+    pyclig.confirm(ctx, message="Delete every sample item?", force=force)
+    ctx.out.print("purged")
 
 
 @cli.command()

@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
+### Added
+
+- `examples=` on commands, listed under `EXAMPLES:` in their `--help`
+- `pyclig.confirm()`: a `[y/N]` prompt on a terminal STDIN, else exit 2 naming `--force`
+- `pyclig.options.dry_run()`: `-n/--dry-run`
+- `pyclig.testing.invoke(in_tty=True)`, for code that prompts with `pyclig.confirm()`
+
+### Changed
+
+- `-d` prints each record as one plain line when STDERR is not a terminal; Rich layout otherwise
+
+### Fixed
+
+- `error: aborted` after EOF (Ctrl-D) at a prompt starts its own line on a terminal
+
 ## [0.1.0] - 2026-10-31
 
 ### Added

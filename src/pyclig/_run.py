@@ -28,7 +28,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, TextIO
 
 import click
 from rich.console import Console
@@ -59,6 +59,8 @@ class State:
         package: The application package - its logger & distribution.
         errors: Expected exception types.
         debug: Whether `-d/--debug` was given.
+        in_tty: Whether STDIN is an interactive terminal, so a prompt can
+            be answered.
     """
 
     out: Console
@@ -66,6 +68,7 @@ class State:
     package: str
     errors: Errors = ()
     debug: bool = False
+    in_tty: bool = False
 
 
 class Interrupted(Exception):
@@ -126,8 +129,7 @@ def _console(*, stderr: bool) -> Console:
     falls back to its legacy Windows renderer, which drops colour, whenever
     the stream is not a console; a pipe is written with ANSI codes instead.
     """
-    stream = sys.stderr if stderr else sys.stdout
-    piped = not (hasattr(stream, "isatty") and stream.isatty())
+    piped = not is_tty(sys.stderr if stderr else sys.stdout)
     return Console(
         stderr=stderr,
         markup=False,
@@ -135,6 +137,21 @@ def _console(*, stderr: bool) -> Console:
         highlight=False,
         legacy_windows=False if sys.platform == "win32" and piped else None,
     )
+
+
+def is_tty(stream: TextIO | None) -> bool:
+    """Check whether a standard stream is a terminal.
+
+    NOTE: A standard stream is None under `pythonw`, & a replacement stream
+    may lack `isatty`.
+
+    Args:
+        stream: The stream, e.g. `sys.stdin`.
+
+    Returns:
+        Whether the stream is a terminal.
+    """
+    return stream is not None and hasattr(stream, "isatty") and stream.isatty()
 
 
 def package_of(func: object, default: str) -> str:
@@ -248,10 +265,7 @@ def execute(func: Callable[[], object], state: State, *, prog: str) -> int:
     except (KeyboardInterrupt, Interrupted):
         return _interrupted(state.err)
     except click.Abort as error:
-        if isinstance(error.__cause__ or error.__context__, KeyboardInterrupt):
-            return _interrupted(state.err)
-        notice(state.err, level="error", message="aborted")
-        return ExitCode.FAILURE
+        return _aborted(state.err, error)
     except Escaped as escaped:
         return _failed(escaped.error, state, prog)
     except Exception as error:
@@ -294,6 +308,24 @@ def _interrupted(err: Console) -> int:
         err.line()
     notice(err, level="warning", message="interrupted")
     return ExitCode.INTERRUPT
+
+
+def _aborted(err: Console, error: click.Abort) -> int:
+    """Report a declined or interrupted prompt & return its exit code.
+
+    NOTE: click raises `Abort` from None at a prompt, so the Ctrl-C or EOF
+    behind it survives as `__context__`. EOF (Ctrl-D) leaves a terminal on
+    the prompt line, so the line is ended before `error: aborted`.
+    """
+    cause = error.__cause__ or error.__context__
+    if isinstance(cause, KeyboardInterrupt):
+        return _interrupted(err)
+    eof = isinstance(cause, EOFError)
+    # EOF on a Windows console is Ctrl-Z + Enter: the Enter ends the line
+    if eof and err.is_terminal and sys.platform != "win32":
+        err.line()
+    notice(err, level="error", message="aborted")
+    return ExitCode.FAILURE
 
 
 def _failed(error: Exception, state: State, prog: str) -> int:

@@ -1,5 +1,6 @@
 """Shared fixtures across the `tests/` directory."""
 
+import io
 import os
 import subprocess
 import sys
@@ -25,6 +26,34 @@ _CLEARED = (
     "TTY_COMPATIBLE",
     "TTY_INTERACTIVE",
 )
+
+
+class InterruptingInput(io.BytesIO):
+    """STDIN that raises `KeyboardInterrupt` on the first read, like Ctrl-C."""
+
+    def read(self, size: int | None = -1) -> bytes:
+        """Raise `KeyboardInterrupt`, unless nothing is asked for.
+
+        Args:
+            size: The number of bytes to read.
+
+        Returns:
+            No bytes, for a zero-length read.
+        """
+        if size == 0:
+            return b""
+        raise KeyboardInterrupt
+
+    def read1(self, size: int | None = -1) -> bytes:
+        """Read as `read` does.
+
+        Args:
+            size: The number of bytes to read.
+
+        Returns:
+            No bytes, for a zero-length read.
+        """
+        return self.read(size)
 
 
 @pytest.fixture

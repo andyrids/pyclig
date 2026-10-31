@@ -5,7 +5,14 @@ License:
 """
 
 from pyclig import options
-from pyclig._core import Command, Context, Group, group, pass_context
+from pyclig._core import (
+    Command,
+    Context,
+    Group,
+    confirm,
+    group,
+    pass_context,
+)
 from pyclig._exit import ExitCode
 from pyclig._output import hanging, info, notice
 from pyclig._run import run
@@ -15,6 +22,7 @@ __all__: list[str] = [
     "Context",
     "ExitCode",
     "Group",
+    "confirm",
     "group",
     "hanging",
     "info",

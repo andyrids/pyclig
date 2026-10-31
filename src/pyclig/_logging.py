@@ -1,9 +1,14 @@
 """Logging for a CLI run, bound to the run's STDERR console.
 
 Without `-d`, records render as `warning:` / `error:` notices
-(`EventHandler`). With `-d`, a `RichHandler` adds levels, times & call sites.
+(`EventHandler`). With `-d`, records add levels, times & call sites: laid out
+by a `RichHandler` on a terminal, else one plain line each (`DebugHandler`):
 
-NOTE: Both handlers write through the console they are given. Pass the same
+```text
+[2026-10-31T09:14:03+0000] DEBUG    [convert] converting 'nope'  cli.py:47
+```
+
+NOTE: Every handler writes through the console it is given. Pass the same
 STDERR console to any `Progress` or `Status`, so Rich redraws the live
 display around log lines instead of printing through it. The logger's state
 is restored when the run ends, so repeated in-process runs (tests) never
@@ -26,10 +31,16 @@ from datetime import datetime
 from rich.console import Console
 from rich.text import Text
 
-from pyclig._output import info, notice, print_exception
+from pyclig._output import _plain, info, notice, print_exception
 
 DATEFMT = "[%Y-%m-%dT%H:%M:%S%z]"
-"""The `-d` handler's time format, in local time with its UTC offset."""
+"""The `-d` handlers' time format, in local time with its UTC offset."""
+
+DEBUG_FORMAT = (
+    "%(asctime)s %(levelname)-8s [%(funcName)s] %(message)s"
+    "  %(filename)s:%(lineno)d"
+)
+"""The `DebugHandler` record format; `asctime` is formatted with `DATEFMT`."""
 
 _MARKER = "_pyclig_handler"
 
@@ -74,6 +85,61 @@ class EventHandler(logging.Handler):
             self.handleError(record)
 
 
+class _DebugFormatter(logging.Formatter):
+    """Format records with `DEBUG_FORMAT`, timed with `DATEFMT`."""
+
+    def formatTime(
+        self, record: logging.LogRecord, datefmt: str | None = None
+    ) -> str:
+        """Return the record's local time with its UTC offset.
+
+        NOTE: The stdlib `datefmt` path uses `time.strftime`, whose `%z` can
+        print a zone name on Windows.
+
+        Args:
+            record: The log record.
+            datefmt: Ignored; `DATEFMT` is always used.
+
+        Returns:
+            The formatted time.
+        """
+        return _timestamp(datetime.fromtimestamp(record.created))
+
+
+class DebugHandler(logging.Handler):
+    """Render log records as plain lines, for `-d` off a terminal.
+
+    NOTE: Each record, with any traceback after it, prints in one call that
+    never wraps, so it stays one `grep`-able line & never interleaves with
+    output from another thread.
+
+    Attributes:
+        console: The console records are printed to, usually STDERR.
+    """
+
+    def __init__(self, console: Console, level: int = logging.NOTSET) -> None:
+        """Create the handler.
+
+        Args:
+            console: The console to print records to.
+            level: The handler's level.
+        """
+        super().__init__(level)
+        self.console = console
+        self.setFormatter(_DebugFormatter(DEBUG_FORMAT))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Print the formatted record.
+
+        Args:
+            record: The log record.
+        """
+        try:
+            _plain(self.console, self.format(record))
+        except Exception:
+            self.handleError(record)
+
+
 def configure(name: str, console: Console, *, debug: bool) -> None:
     """Attach a CLI handler, bound to `console`, to the `name` logger.
 
@@ -84,13 +150,14 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
     Args:
         name: The logger name, usually the application package.
         console: The STDERR console of the run.
-        debug: Use the verbose `RichHandler` at `DEBUG`, else the
-            `EventHandler` at `WARNING`.
+        debug: Log at `DEBUG` - through a `RichHandler` when `console` is a
+            terminal, else the plain `DebugHandler`. Otherwise the
+            `EventHandler` logs at `WARNING`.
     """
     logger = logging.getLogger(name)
     _remove_handlers(logger)
     handler: logging.Handler
-    if debug:
+    if debug and console.is_terminal:
         from rich.logging import RichHandler
 
         handler = RichHandler(
@@ -102,6 +169,8 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
             log_time_format=_format_time,
         )
         handler.setFormatter(logging.Formatter("[%(funcName)s] %(message)s"))
+    elif debug:
+        handler = DebugHandler(console)
     else:
         handler = EventHandler(console)
     setattr(handler, _MARKER, True)
@@ -131,9 +200,14 @@ def scoped(name: str) -> Generator[None, None, None]:
         logger.propagate = saved[2]
 
 
-def _format_time(when: datetime) -> Text:
+def _timestamp(when: datetime) -> str:
     """Format a record's time with `DATEFMT`, adding the local UTC offset."""
-    return Text(when.astimezone().strftime(DATEFMT))
+    return when.astimezone().strftime(DATEFMT)
+
+
+def _format_time(when: datetime) -> Text:
+    """Format a record's time for the `RichHandler`."""
+    return Text(_timestamp(when))
 
 
 def _remove_handlers(logger: logging.Logger) -> None:

@@ -37,6 +37,7 @@ def invoke(
     cli: Group,
     args: Sequence[str] = (),
     *,
+    in_tty: bool = False,
     out_tty: bool = False,
     err_tty: bool = False,
     color: bool = False,
@@ -45,7 +46,7 @@ def invoke(
     env: Mapping[str, str | None] | None = None,
     input: str | bytes | IO[Any] | None = None,  # noqa: A002 - click's own keyword
 ) -> Result:
-    """Run `cli` in-process, as if STDOUT & STDERR were the given streams.
+    """Run `cli` in-process, as if the standard streams were the given ones.
 
     NOTE: Live displays only animate with `interactive`, so output stays
     deterministic by default. The application logger is restored when the
@@ -54,6 +55,8 @@ def invoke(
     Args:
         cli: The CLI.
         args: The command line arguments.
+        in_tty: Treat STDIN as a terminal, so `pyclig.confirm` prompts &
+            reads its answer from `input`.
         out_tty: Treat STDOUT as a terminal.
         err_tty: Treat STDERR as a terminal.
         color: Emit ANSI colour codes on both streams.
@@ -95,4 +98,5 @@ def invoke(
         env=environ,
         catch_exceptions=False,
         pyclig_consoles=consoles,
+        pyclig_in_tty=in_tty,
     )

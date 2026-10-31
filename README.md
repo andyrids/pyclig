@@ -30,7 +30,7 @@ def cli() -> None:
     """Download DMA AIS archives and convert them to Parquet."""
 
 
-@cli.command("list")
+@cli.command("list", examples=["dkais list --start 2026-10 --json"])
 @pyclig.options.json_output()
 @click.option("--start", metavar="DATE")
 @pyclig.pass_context
@@ -47,6 +47,8 @@ if __name__ == "__main__":
 Point the entry point at the group: `[project.scripts] dkais = "dkais.__main__:cli"`. Always
 name the group - the name is the program name, also under `python -m`, and sets the shell
 completion variable (`_DKAIS_COMPLETE`).
+
+Commands take `examples=` too: their `--help` lists them under `EXAMPLES:`, before the epilog.
 
 ## What every group gets
 
@@ -113,6 +115,32 @@ output, and `TextColumn(markup=False)` in a Rich `Progress`.
 | `json_output()` | `--json` | `json_output` |
 | `select_all()` | `-a`, `--all` | `select_all` |
 | `force()` | `-f`, `--force` | `force` |
+| `dry_run()` | `-n`, `--dry-run` | `dry_run` |
+
+## Confirmation
+
+`pyclig.confirm()` asks before a large or destructive action, and `--force` skips the question:
+
+```python
+@cli.command()
+@pyclig.options.force()
+@pyclig.pass_context
+def purge(ctx: pyclig.Context, force: bool) -> None:
+    """Delete every local archive."""
+    pyclig.confirm(ctx, message="Delete every local archive?", force=force)
+```
+
+| Case | STDERR | Exit |
+| --- | --- | --- |
+| `force=True` | - | continues |
+| STDIN is not a terminal | `error:` naming `--force`, the command's usage, a `--help` hint | 2 |
+| `y` or `yes` | The `[y/N]` prompt | continues |
+| `n`, an empty answer or EOF | `error: aborted` | 1 |
+| Ctrl-C | `warning: interrupted` | 130 |
+
+A script cannot answer the prompt, so without a terminal on STDIN the run fails rather than read
+an answer from a pipe. click writes the prompt to STDERR - with `2>log` it lands in the log - so
+call `confirm` before starting a `Progress` or `Status`.
 
 ## Logging
 
@@ -123,9 +151,16 @@ defines the group. Libraries add only a `NullHandler`, in the package `__init__.
 logging.getLogger(__name__).addHandler(logging.NullHandler())
 ```
 
-During a run, warnings & errors print as `warning:` / `error:` notices on `ctx.err`. With `-d`, a
-`RichHandler` adds `DEBUG` records, times (`[2026-10-31T18:44:45+0000]`) & call sites. The
-logger's handlers, level & propagation are restored when the run ends.
+During a run, warnings & errors print as `warning:` / `error:` notices on `ctx.err`. With `-d`,
+`DEBUG` records, times & call sites are added - laid out by a `RichHandler` when STDERR is a
+terminal. Otherwise each record is one line that never wraps, with any traceback after it in plain
+text:
+
+```text
+[2026-10-31T09:14:03+0000] DEBUG    [convert] converting 'nope'  types.py:47
+```
+
+The logger's handlers, level & propagation are restored when the run ends.
 
 ## Testing
 
@@ -143,6 +178,9 @@ def test_list_rows_when_piped() -> None:
 `invoke` returns click's `Result`, with `stdout` & `stderr` apart. `out_tty`, `err_tty`, `color`
 & `width` set up each console; `env` sets (or, with None, unsets) variables. Colour & terminal
 variables from the developer's shell are cleared. Never patch Rich private attributes.
+
+`in_tty=True` treats STDIN as a terminal, so `pyclig.confirm` prompts and reads its answer from
+`input`. In `invoke`, click echoes that answer to STDERR after the prompt (`... [y/N]: y`).
 
 ## Parser-less entry points
 
