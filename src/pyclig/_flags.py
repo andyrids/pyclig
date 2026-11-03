@@ -1,5 +1,10 @@
 """Run flags: options about how a run behaves, accepted on every command.
 
+| Flag           | Effect                                               |
+| -------------- | ---------------------------------------------------- |
+| `-d, --debug`  | `DEBUG` logging as soon as it is parsed              |
+| `--no-color`   | No colour on either console; bold & dim stay         |
+
 `RUN_FLAGS` are on every `pyclig.Command`; an application declares its own
 with `click.option(..., cls=pyclig.GlobalOption)` on the command whose
 subtree accepts it, usually the root group. A command's own option with the
@@ -79,11 +84,22 @@ def _debug(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         _logging.configure(state.package, state.err, debug=True)
 
 
+def _no_color(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Drop colour from both consoles, keeping bold & dim, like `NO_COLOR`."""
+    state = _run.state_of(ctx)
+    if value and state and not ctx.resilient_parsing:
+        state.out.no_color = True
+        state.err.no_color = True
+
+
 DEBUG = GlobalOption(
     ["-d", "--debug"], callback=_debug, help="Show debug logging output."
 )
+NO_COLOR = GlobalOption(
+    ["--no-color"], callback=_no_color, help="Print without colour."
+)
 
-RUN_FLAGS: tuple[GlobalOption, ...] = (DEBUG,)
+RUN_FLAGS: tuple[GlobalOption, ...] = (DEBUG, NO_COLOR)
 """The run flags every `pyclig.Command` accepts."""
 
 

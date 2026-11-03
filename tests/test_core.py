@@ -125,8 +125,8 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
 @pytest.mark.parametrize(
     ("command", "line"),
     [
-        ("list", "  --audit, -d/--debug - see 'sample --help'."),
-        ("copy", "  --audit, --debug - see 'sample --help'."),
+        ("list", "  --audit, -d/--debug, --no-color - see 'sample --help'."),
+        ("copy", "  --audit, --debug, --no-color - see 'sample --help'."),
     ],
 )
 def test_global_options_one_line_on_subcommands(
@@ -364,6 +364,24 @@ def test_debug_after_invalid_option(sample: Group) -> None:
     result = invoke(sample, ["list", "--start", "nope", "-d"])
     assert result.exit_code == pyclig.ExitCode.USAGE
     assert "converting 'nope'" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--no-color", "fail", "--kind", "mapped"],
+        ["fail", "--no-color", "--kind", "mapped"],
+    ],
+    ids=["before", "after"],
+)
+def test_no_color_flag_drops_colour_keeps_bold(
+    sample: Group, args: list[str]
+) -> None:
+    """Assert `--no-color` removes colour from both consoles, keeping bold."""
+    result = invoke(sample, args, err_tty=True, color=True)
+    assert result.exit_code == pyclig.ExitCode.FAILURE
+    assert "\x1b[1;31m" not in result.stderr
+    assert result.stderr.startswith("\x1b[1merror:\x1b[0m")
 
 
 def test_nested_group_is_pyclig_group(sample: Group) -> None:
