@@ -99,6 +99,15 @@ def test_no_args_is_help_prints_concise_help_to_stderr(sample: Group) -> None:
     assert "error:" not in result.stderr
 
 
+def test_plain_click_child_no_args_prints_full_help(sample: Group) -> None:
+    """Assert a plain click child with `no_args_is_help` keeps click's help."""
+    result = invoke(sample, ["plain"])
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert result.stderr.startswith("Usage: sample plain [OPTIONS] ITEM\n")
+    assert "Options:" in result.stderr
+
+
 def test_mapped_error_without_traceback(sample: Group) -> None:
     """Assert an `errors` type prints `error: message` only, exit 1."""
     result = invoke(sample, ["fail", "--kind", "mapped"])

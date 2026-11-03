@@ -292,5 +292,15 @@ def leaf(ctx: click.Context) -> None:
         click.echo("audited")
 
 
+@click.command(no_args_is_help=True)
+@click.argument("item")
+def plain(item: str) -> None:
+    """Print `item` - a plain click command, outside the pyclig conventions."""
+    click.echo(item)
+
+
+cli.add_command(plain)
+
+
 if __name__ == "__main__":
     cli()

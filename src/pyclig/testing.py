@@ -1,7 +1,7 @@
-"""Run a `pyclig.Command` or `Group` in-process & capture each stream.
+"""Run a `pyclig.Command` or `Group` in-process & check it against CLIG.
 
 ```python
-from pyclig.testing import invoke
+from pyclig.testing import assert_conforms, invoke
 
 
 def test_list_plain_output_when_piped() -> None:
@@ -9,7 +9,16 @@ def test_list_plain_output_when_piped() -> None:
     result = invoke(cli, ["list"], err_tty=True)
     assert result.exit_code == 0
     assert "\\t" in result.stdout
+
+
+def test_cli_conforms() -> None:
+    \"\"\"Assert the CLI follows the guidelines pyclig can check.\"\"\"
+    assert_conforms(cli, ignore={"ARG-16": "`--token` also reads a file"})
 ```
+
+`check` returns the `Finding`s instead of asserting; `assert_conforms`
+lists them by rule ID (`docs/clig-coverage.md`), command & message. Neither
+runs a command body.
 
 License:
     SPDX-License-Identifier: Apache-2.0
@@ -21,7 +30,10 @@ from typing import IO, Any
 from click.testing import CliRunner, Result
 from rich.console import Console
 
+from pyclig._conformance import Finding, assert_conforms, check
 from pyclig._core import Command
+
+__all__: list[str] = ["Finding", "assert_conforms", "check", "invoke"]
 
 _CLEARED = (
     "COLUMNS",
