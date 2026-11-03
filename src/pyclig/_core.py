@@ -221,11 +221,14 @@ def _prompt(
     prompt: Callable[[click.Context], Any],
     ctx: click.Context,
 ) -> Any:
-    """Prompt for `option` on STDERR, or fail when the run cannot prompt.
+    """Prompt for `option` on STDERR; otherwise its default, or fail.
 
     NOTE: click prompts on STDOUT, where a `prog > file` would hide the
     question; the prompt is a message, so STDOUT is redirected to STDERR
-    for its duration.
+    for its duration. When the run cannot prompt, the option's own default
+    (`default=`, callable or from `default_map`) is the answer - the
+    guidelines ask for a failure only when input is required. A flag
+    prompting without a default fails, as click would force an answer.
 
     Args:
         option: The option with `prompt=`.
@@ -233,13 +236,16 @@ def _prompt(
         ctx: The command's context.
 
     Returns:
-        The answer, processed by the option's type.
+        The answer or the default, processed later by the option's type.
 
     Raises:
-        click.UsageError: When the run cannot prompt.
+        click.UsageError: When the run cannot prompt & there is no default.
     """
     state = _run.state_of(ctx)
     if state is not None and not state.can_prompt:
+        default = click.Parameter.get_default(option, ctx)
+        if default is not None and not option.value_is_missing(default):
+            return default
         raise click.UsageError(
             f"{option.get_error_hint(ctx)} needs a value, but "
             f"{_cannot_prompt(state)} - pass it on the command line",
@@ -279,8 +285,9 @@ class Command(click.Command):
     NOTE: The run flags (`-d`, `-q`, `--no-color`, `--no-input` & any
     `GlobalOption` of an ancestor) are added by `get_params`, so parsing,
     help & completion all see them; a command's own option with the same
-    spelling wins. An option with `prompt=` prompts on STDERR, and fails
-    naming itself when the run cannot prompt. Usage errors raised while
+    spelling wins. An option with `prompt=` prompts on STDERR; when the run
+    cannot prompt it takes its default, or fails naming itself without
+    one. Usage errors raised while
     parsing are bound to this command, so they show its usage. `main` runs
     the command with fresh consoles & logging; `errors` is read from the
     command `main` is called on.

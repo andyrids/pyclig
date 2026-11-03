@@ -209,7 +209,8 @@ def purge(ctx: pyclig.Context, force: bool) -> None:
 A script cannot answer the prompt, so the run fails rather than read an answer from a pipe, and
 with `2>log` it fails rather than hide the question in the log. Call `confirm` before starting a
 `Progress` or `Status`. A click option with `prompt=` follows the same rule: it prompts on STDERR,
-and when the run cannot prompt it fails naming the option, so `--no-input` never lies.
+and when the run cannot prompt it takes its default, or fails naming the option when it has none -
+so `--no-input` never lies.
 
 ## Logging
 

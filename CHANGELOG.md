@@ -41,7 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking:** help order is `USAGE`, description, `EXAMPLES`, `COMMANDS`, `OPTIONS`, `GLOBAL
   OPTIONS`, epilog; run flags leave `OPTIONS:` for `GLOBAL OPTIONS:`, one line on subcommands
 - A command with `no_args_is_help` prints concise help (usage, description, examples, hint)
-- A click `prompt=` option prompts on STDERR & fails naming itself when the run cannot prompt
+- A click `prompt=` option prompts on STDERR; when the run cannot prompt it takes its default,
+  or fails naming itself when it has none
 - The runner, `errors=` & the Ctrl-C/EOF/pipe translation live on `Command`; `Group.add_command`
   rejects a subcommand that sets `errors=`
 - `pyclig.run()` enters a `Context`, so a `pass_context` shim gets `ctx.err`

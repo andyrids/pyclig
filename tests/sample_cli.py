@@ -251,6 +251,16 @@ def login(token: str) -> None:
 
 
 @cli.command()
+@click.option("--name", prompt="Name", default="me", help="Who to greet.")
+@click.option(
+    "--when", prompt="When", default=lambda: "now", help="When to greet."
+)
+def greet(name: str, when: str) -> None:
+    """Print a greeting, prompting with defaults when values are not given."""
+    click.echo(f"{name} {when}")
+
+
+@cli.command()
 @pyclig.pass_context
 def chatter(ctx: pyclig.Context) -> None:
     """Print info from the main & a worker thread, a warning & STDOUT."""

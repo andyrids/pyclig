@@ -124,7 +124,7 @@ library's reach.
 | ARG-6e | Standard names: `-o`, `-p`, `-u` | gap | Roadmap 0.5 | interface |
 | ARG-7 | Defaults suit most users | gap | Judgement | out |
 | ARG-8 | Prompt for missing input | done | `prompt=` on STDERR, gated | interface |
-| ARG-9 | Never require a prompt; skip off a TTY | done | Fail naming the flag | auto |
+| ARG-9 | Never require a prompt; skip off a TTY | done | Default, else fail naming the flag | auto |
 | ARG-10 | Confirm danger; `--force` for scripts | done | `confirm`, `options.force()` | interface |
 | ARG-11a | Mild or moderate danger: prompt, dry run | done | `confirm`, `dry_run()` | interface |
 | ARG-11b | Severe danger: type the name, `--confirm=name` | gap | Roadmap 0.6 | interface |

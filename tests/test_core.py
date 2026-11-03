@@ -694,6 +694,45 @@ def test_prompt_option_fails_instead_of_prompting(
     assert "Token:" not in result.stderr
 
 
+@pytest.mark.parametrize(
+    ("args", "ttys"),
+    [(["greet"], False), (["greet", "--no-input"], True)],
+    ids=["piped", "no-input"],
+)
+def test_prompt_option_with_default_uses_it(
+    sample: Group, args: list[str], ttys: bool
+) -> None:
+    """Assert a `prompt=` option with a default takes it when it cannot ask."""
+    result = invoke(sample, args, in_tty=ttys, err_tty=ttys)
+    assert result.exit_code == 0
+    assert result.stdout == "me now\n"
+    assert result.stderr == ""
+
+
+def test_prompt_option_with_default_still_asks_on_a_terminal(
+    sample: Group,
+) -> None:
+    """Assert a `prompt=` option with a default prompts on a terminal."""
+    result = invoke(sample, ["greet"], in_tty=True, err_tty=True, input="\n\n")
+    assert result.exit_code == 0
+    assert result.stdout == "me now\n"
+    assert result.stderr == "Name [me]: \nWhen [now]: \n"
+
+
+def test_prompt_option_with_none_default_still_fails() -> None:
+    """Assert `default=None` counts as no default, so the run fails."""
+
+    @pyclig.command("ask")
+    @click.option("--who", prompt="Who", default=None, help="Who.")
+    def ask(who: str | None) -> None:
+        """Ask who."""
+        click.echo(f"who={who}")
+
+    result = invoke(ask, ["--no-input"], in_tty=True, err_tty=True, width=120)
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stderr.startswith("error: '--who' needs a value, but ")
+
+
 def test_prompt_option_given_needs_no_prompt(sample: Group) -> None:
     """Assert a `prompt=` option given on the command line never prompts."""
     result = invoke(sample, ["login", "--token", "x", "--no-input"])
