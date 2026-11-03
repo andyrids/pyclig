@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `-q/--quiet`, `--no-color` & `--no-input` on every command, before or after its name
 - `ctx.quiet`, `ctx.can_prompt` & `ctx.format` (`human`, `plain` or `json`)
 - `pyclig.options.plain()`: `--plain`, per command; `--json` now sets `ctx.format` too
-- `hint` & `exit_code` attributes on `errors=` types: a dim remedy line, a code other than 1
+- `hint` & `exit_code` attributes on `errors=` types: a dim remedy line, a non-zero code other
+  than 1 (anything else, such as 0 or a bool, still exits 1)
 - `pyclig.testing.check`, `assert_conforms` & `Finding`: the CLIG conformance kit, by rule ID
 - `docs/clig-coverage.md`, the rule-by-rule requirement table, & `docs/roadmap.md`
 

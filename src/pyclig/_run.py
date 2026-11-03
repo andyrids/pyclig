@@ -16,8 +16,10 @@ Ctrl-C or its own errors to print a tailored message first.
 | Any other exception        | traceback, `error:` & bug hint       | 70     |
 
 An exception type in `errors` may carry a `hint` (printed dim, after the
-message, where the eye lands) & an `exit_code` replacing 1. Both are read by
-attribute, so the application's exceptions need no pyclig import.
+message, where the eye lands) & an `exit_code` replacing 1 - honoured only
+when it is a non-zero, non-bool `int`, since an error must not exit 0. Both
+are read by attribute, so the application's exceptions need no pyclig
+import.
 
 License:
     SPDX-License-Identifier: Apache-2.0
@@ -392,7 +394,9 @@ def _failed(error: Exception, state: State, prog: str) -> int:
         if remedy:
             hint(state.err, message=str(remedy))
         code = getattr(error, "exit_code", None)
-        return code if isinstance(code, int) else ExitCode.FAILURE
+        if isinstance(code, int) and not isinstance(code, bool) and code != 0:
+            return code
+        return ExitCode.FAILURE
     print_exception(state.err, error)
     detail = str(error).strip()
     message = f"unexpected {type(error).__name__}"

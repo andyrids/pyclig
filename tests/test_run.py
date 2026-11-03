@@ -139,6 +139,26 @@ def test_mapped_error_exit_code(sample: Group) -> None:
     assert result.stderr == "error: partial\n"
 
 
+@pytest.mark.parametrize(
+    "code", [0, True, "nope", None], ids=["zero", "bool", "text", "none"]
+)
+def test_mapped_error_exit_code_must_be_a_non_zero_int(code: object) -> None:
+    """Assert an `exit_code` that is not a non-zero, non-bool int gives 1."""
+
+    class Odd(Exception):
+        exit_code = code
+
+    @pyclig.command("odd", errors=(Odd,))
+    def odd() -> None:
+        """Fail oddly."""
+        raise Odd("boom")
+
+    result = invoke(odd)
+    assert result.exit_code == 1
+    assert not isinstance(result.exit_code, bool)
+    assert result.stderr == "error: boom\n"
+
+
 def test_mapped_error_with_debug_prints_traceback(sample: Group) -> None:
     """Assert `-d` prints the traceback of an expected error first."""
     result = invoke(sample, ["fail", "--kind", "mapped", "-d"])

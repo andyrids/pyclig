@@ -124,7 +124,7 @@ messages on STDERR:
 | Declined `click.confirm(abort=True)` | `error: aborted` | 1 |
 | A type in `errors=` | `error: message`, the traceback first with `-d` | 1 |
 | ... with a `hint` attribute | ... then the hint, dim, last | 1 |
-| ... with an `exit_code` attribute | ... | that code |
+| ... with an `exit_code` attribute | ... | that code, if a non-zero int |
 | Broken STDOUT pipe (`prog \| head -1`) | - | 1 |
 | Any other exception | trimmed traceback, `error:`, bug report hint | 70 |
 
