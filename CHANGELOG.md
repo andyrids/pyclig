@@ -18,6 +18,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `pyclig.command()`: a standalone command with the runner, run flags, `-h` & `-v/--version`
+- `pyclig.GlobalOption`: a run flag declared once, accepted on every command below it
+- `-q/--quiet`, `--no-color` & `--no-input` on every command, before or after its name
+- `ctx.quiet`, `ctx.can_prompt` & `ctx.format` (`human`, `plain` or `json`)
+- `pyclig.options.plain()`: `--plain`, per command; `--json` now sets `ctx.format` too
+- `hint` & `exit_code` attributes on `errors=` types: a dim remedy line, a code other than 1
+- `pyclig.testing.check`, `assert_conforms` & `Finding`: the CLIG conformance kit, by rule ID
+- `docs/clig-coverage.md`, the rule-by-rule requirement table, & `docs/roadmap.md`
+
+### Changed
+
+- **Breaking:** `FORCE_COLOR` means colour only - a piped console keeps its colour but is not a
+  terminal, so notices stay one line, `-d` stays plain & nothing animates; `TTY_COMPATIBLE=1`
+  still makes a pipe a terminal. A CLI pinned to `~=0.2` picks this up on its next install
+- **Breaking:** `pyclig.confirm()` needs a terminal on STDERR as well as STDIN & honours
+  `--no-input`; its message now says why (`there is no terminal to ask on`, `--no-input was given`)
+- **Breaking:** help order is `USAGE`, description, `EXAMPLES`, `COMMANDS`, `OPTIONS`, `GLOBAL
+  OPTIONS`, epilog; run flags leave `OPTIONS:` for `GLOBAL OPTIONS:`, one line on subcommands
+- A command with `no_args_is_help` prints concise help (usage, description, examples, hint)
+- A click `prompt=` option prompts on STDERR & fails naming itself when the run cannot prompt
+- The runner, `errors=` & the Ctrl-C/EOF/pipe translation live on `Command`; `Group.add_command`
+  rejects a subcommand that sets `errors=`
+- `pyclig.run()` enters a `Context`, so a `pass_context` shim gets `ctx.err`
+- `pyclig.testing.invoke` takes any `pyclig.Command` & gives the run `err_tty`
+- `-d` is the first `GlobalOption`; a command's own `-d` (e.g. `-d/--dir`) wins & `--debug` stays
+
+### Fixed
+
+- `-h` & `--help` show help, exit 0, after an unknown option, a flag given a value or an unknown
+  command - anywhere before `--`
+- `-d`, `ctx.out` & `-h` on `click.command(cls=pyclig.Command)` standalone commands
+- `-q` keeps the `--help` pointer of a usage error & error hints
+
 ## [0.2.0] - 2026-10-31
 
 ### Added
