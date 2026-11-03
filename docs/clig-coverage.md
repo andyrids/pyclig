@@ -132,7 +132,7 @@ library's reach.
 | ARG-13 | `-` for STDIN & STDOUT | done (click) | `click.File` | interface |
 | ARG-14 | A word like `none` for an optional value | gap | No type | interface |
 | ARG-15 | Order independence | partial | Run flags anywhere; `-v` at the root only | check |
-| ARG-16 | No secrets from flags; use a file or STDIN | done | Kit: a secret-looking flag | check |
+| ARG-16 | No secrets from flags; file or STDIN | done | Kit: a `--password`-like value | check |
 
 ## Interactivity
 
@@ -220,7 +220,7 @@ library's reach.
 | ENV-12 | `LINES` & `COLUMNS` | partial (rich) | `COLUMNS` | auto |
 | ENV-13 | Read a local `.env` | gap | Roadmap 0.5 | interface |
 | ENV-14 | `.env` is not a config file | gap | Guidance | out |
-| ENV-15 | No secrets from env vars | done | Kit: a secret-looking `envvar=` | check |
+| ENV-15 | No secrets from env vars | done | Kit: an `envvar=` ending in `_TOKEN` etc. | check |
 | ENV-16 | Secrets via file, pipe, socket or service | gap | Roadmap 0.5 | interface |
 
 ## Naming, distribution and analytics

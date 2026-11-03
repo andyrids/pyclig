@@ -12,8 +12,8 @@ real input are out of its reach.
 | HELP-3  | A flag without help text                                    |
 | ARG-2   | A flag with no long form                                    |
 | ARG-6   | A standard short flag with a non-standard long form         |
-| ARG-16  | A flag whose name says it takes a secret                    |
-| ENV-15  | A flag reading a secret-looking environment variable        |
+| ARG-16  | A value-taking option whose name ends in a secret word      |
+| ENV-15  | An option reading an env var whose name ends in a secret    |
 | SUB-3   | A plain click command, outside the run flags & help layout  |
 | HELP-1  | A help flag not answered on STDOUT with exit 0              |
 | BAS-2   | An unknown flag not answered with exit 2                    |
@@ -47,7 +47,10 @@ STANDARD_SHORT: dict[str, tuple[str, ...]] = {
 }
 """The standard short flags & the long forms the guidelines give them."""
 
-_SECRET = re.compile(r"passw(or)?d|secret|token|api[-_]?key|credential", re.I)
+_SECRET = re.compile(
+    r"(passw(or)?d|secrets?|tokens?|api[-_]?key|credentials?)$", re.I
+)
+"""A name ending in a secret word: `--password` yes, `--password-file` no."""
 _UNKNOWN_FLAG = "--pyclig-no-such-flag"
 _CLEARED = ("COLUMNS", "FORCE_COLOR", "NO_COLOR", "TTY_COMPATIBLE")
 
@@ -161,6 +164,8 @@ def _check_params(path: str, command: click.Command) -> list[Finding]:
                     f"here `{longs[0]}`"
                 )
                 findings.append(Finding("ARG-6", path, message))
+        if param.is_flag:
+            continue
         if any(_SECRET.search(o) for o in longs):
             message = (
                 f"`{name}` takes a secret on the command line - "

@@ -103,6 +103,29 @@ def serve(host: str | None) -> None:
     calls.append("serve")
 
 
+@pyclig.group("vault", examples=["vault open"])
+def vault() -> None:
+    """Group a command mixing secret-looking & innocent names."""
+    calls.append("vault")
+
+
+@vault.command("open")
+@click.option("--password-file", type=click.Path(), help="The remedy itself.")
+@click.option("--token-limit", type=int, help="A limit, not a token.")
+@click.option("--show-secrets", is_flag=True, help="A flag takes no value.")
+@click.option(
+    "--token-path", envvar="MY_TOKEN_FILE", help="A path, not a token."
+)
+@click.option("--password", help="A secret.")
+@click.option("--api-key", help="A secret.")
+@click.option("--client-secret", help="A secret.")
+@click.option("--credentials", help="A secret.")
+@click.option("--github", envvar="GITHUB_TOKEN", help="A secret from env.")
+def open_(**kwargs: object) -> None:
+    """Open the vault."""
+    calls.append("open")
+
+
 @pytest.fixture(autouse=True)
 def _no_callbacks() -> None:
     """Reset the callback record before every test."""
@@ -134,6 +157,23 @@ def test_own_help_spelling_is_not_probed() -> None:
     found = {(f.rule, f.command) for f in check(hosted)}
     assert found == {("ARG-6", "hosted serve")}
     assert calls == []
+
+
+def test_secret_findings_only_for_secret_values() -> None:
+    """Assert only value-taking names ending in a secret word are flagged."""
+    flags = sorted(
+        f.message.split("`")[1] for f in check(vault) if f.rule == "ARG-16"
+    )
+    assert flags == [
+        "--api-key",
+        "--client-secret",
+        "--credentials",
+        "--password",
+    ]
+    envs = [
+        f.message.split("`")[3] for f in check(vault) if f.rule == "ENV-15"
+    ]
+    assert envs == ["GITHUB_TOKEN"]
 
 
 def test_finding_messages_name_the_flag() -> None:
