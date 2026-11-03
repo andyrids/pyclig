@@ -202,6 +202,19 @@ def _show_version(ctx: click.Context) -> str:
     return f"{ctx.find_root().info_name} {_run.version(_package(ctx))}"
 
 
+def _help_if_asked(ctx: click.Context, args: Sequence[str]) -> None:
+    """Show the help & exit 0 when a help flag appears before any `--`.
+
+    Args:
+        ctx: The context whose help to show.
+        args: The arguments as given, before parsing consumed them.
+    """
+    head = args[: args.index("--")] if "--" in args else args
+    if not ctx.resilient_parsing and set(ctx.help_option_names) & set(head):
+        click.echo(ctx.get_help(), color=ctx.color)
+        ctx.exit()
+
+
 class Command(click.Command):
     """A click command with `-d/--debug`, the pyclig help layout & runner.
 
@@ -252,7 +265,11 @@ class Command(click.Command):
         )
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
-        """Parse the arguments, binding a parse-time usage error to `ctx`.
+        """Parse the arguments; a help flag wins over any usage error.
+
+        NOTE: click's parser pops from `args`, so the list is snapshotted
+        first. A usage error raised while parsing is bound to `ctx`, so it
+        shows this command's usage.
 
         Args:
             ctx: The command's context.
@@ -261,11 +278,13 @@ class Command(click.Command):
         Returns:
             The arguments left over for a subcommand.
         """
+        given = list(args)
         try:
             return super().parse_args(ctx, args)
         except click.UsageError as error:
             if error.ctx is None:
                 error.ctx = ctx
+            _help_if_asked(ctx, given)
             raise
 
     def format_examples(
@@ -465,6 +484,24 @@ class Group(Command, click.Group):
         if ctx.invoked_subcommand is None:
             click.echo(self.get_concise_help(ctx))
         return result
+
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str | None, click.Command | None, list[str]]:
+        """Resolve the subcommand; a help flag wins over an unknown name.
+
+        Args:
+            ctx: The group's context.
+            args: The remaining arguments, the command name first.
+
+        Returns:
+            The command name, the command & the arguments after it.
+        """
+        try:
+            return super().resolve_command(ctx, args)
+        except click.UsageError:
+            _help_if_asked(ctx, args)
+            raise
 
     def get_concise_help(self, ctx: click.Context) -> str:
         """Return the concise help printed for a bare invocation.

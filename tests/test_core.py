@@ -194,6 +194,36 @@ def test_short_help_option(sample: Group) -> None:
     assert result.stdout.startswith("USAGE:\n  sample list [options]\n")
 
 
+@pytest.mark.parametrize(
+    ("args", "path"),
+    [
+        (["list", "-h", "--strt", "1"], "sample list"),
+        (["list", "--strt", "1", "-h"], "sample list"),
+        (["list", "--json=1", "--help"], "sample list"),
+        (["list", "--start", "-h"], "sample list"),
+        (["--typo", "-h"], "sample"),
+        (["nosuch", "-h"], "sample"),
+    ],
+    ids=["before", "after", "flag-value", "as-value", "root-typo", "command"],
+)
+def test_help_wins_over_a_usage_error(
+    sample: Group, args: list[str], path: str
+) -> None:
+    """Assert a help flag shows help, exit 0, whatever else is wrong."""
+    result = invoke(sample, args)
+    assert result.exit_code == 0
+    assert result.stdout.startswith(f"USAGE:\n  {path} [options]")
+    assert result.stderr == ""
+
+
+def test_help_after_double_dash_still_errors(sample: Group) -> None:
+    """Assert `-h` after `--` is an argument, so the usage error stands."""
+    result = invoke(sample, ["list", "--strt", "1", "--", "-h"])
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert "No such option '--strt'" in result.stderr
+
+
 @pytest.mark.parametrize("flag", ["-v", "--version"])
 def test_version_without_metadata(sample: Group, flag: str) -> None:
     """Assert `-v` prints `prog version`, falling back without metadata."""
