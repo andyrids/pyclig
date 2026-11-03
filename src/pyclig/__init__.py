@@ -13,11 +13,11 @@ from pyclig._core import (
     confirm,
     group,
     pass_context,
+    run,
 )
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
 from pyclig._output import hanging, info, notice
-from pyclig._run import run
 
 __all__: list[str] = [
     "Command",

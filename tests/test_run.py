@@ -375,6 +375,17 @@ def test_run_maps_errors(capsys: pytest.CaptureFixture[str]) -> None:
     assert "error: unexpected ValueError: oops" in stderr
 
 
+def test_run_enters_a_context(capsys: pytest.CaptureFixture[str]) -> None:
+    """Assert a `pass_context` shim run by `pyclig.run` gets the consoles."""
+
+    @pyclig.pass_context
+    def shim(ctx: pyclig.Context) -> int:
+        pyclig.notice(ctx.err, level="warning", message="from the shim")
+        return 0
+
+    assert _run_hook(shim, capsys) == (0, "warning: from the shim\n")
+
+
 def test_run_logs_warnings(capsys: pytest.CaptureFixture[str]) -> None:
     """Assert a warning logged by a hook is printed to STDERR."""
 

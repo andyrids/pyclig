@@ -17,6 +17,7 @@ import contextlib
 import functools
 import sys
 from collections.abc import Callable, Iterable, Sequence
+from pathlib import Path
 from typing import Any, Concatenate, NoReturn, ParamSpec, TypeVar
 
 import click
@@ -720,6 +721,47 @@ def _versioned(f: Callable[..., Any]) -> Callable[..., Any]:
     return click.custom_version_option(
         _show_version, "-v", "--version", help="Show the version and exit."
     )(f)
+
+
+def run(
+    func: Callable[[], int | None], *, errors: _run.Errors = ()
+) -> NoReturn:
+    """Run a parser-less entry point, e.g. a pre-commit hook shim.
+
+    NOTE: For a CLI with commands & flags use `pyclig.group` instead. `run`
+    shares its error handling & logging but leaves `sys.argv` to `func`.
+    It enters a `pyclig.Context`, so `func` may be a `pass_context`
+    function using `ctx.err`.
+
+    ```python
+    def ruff_format() -> NoReturn:
+        pyclig.run(
+            lambda: core_ruff_format(sys.argv[1:]),
+            errors=(exceptions.Error,),
+        )
+    ```
+
+    Args:
+        func: The entry point logic, returning an exit code or None.
+        errors: Expected exception types, reported without a traceback.
+    """
+    _run.configure_streams()
+    out, err = _run.make_consoles()
+    prog = Path(sys.argv[0]).stem or "main"
+    state = _run.State(
+        out,
+        err,
+        _run.package_of(func, default=prog),
+        errors,
+        in_tty=_run.is_tty(sys.stdin),
+        err_tty=_run.is_tty(sys.stderr),
+        format="human" if out.is_terminal else "plain",
+    )
+    ctx = Context(click.Command(prog), info_name=prog, pyclig_state=state)
+    with _logging.scoped(state.package), ctx:
+        _logging.configure(state.package, err, debug=False)
+        code = _run.execute(func, state, prog=prog)
+    sys.exit(code)
 
 
 def group(

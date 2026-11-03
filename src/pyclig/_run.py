@@ -31,13 +31,11 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Literal, NoReturn, TextIO
+from typing import Any, Literal, TextIO
 
 import click
 from rich.console import Console
 
-from pyclig import _logging
 from pyclig._exit import ExitCode
 from pyclig._output import _plain, hint, notice, print_exception
 
@@ -453,31 +451,3 @@ def _is_internal(namespace: dict[str, object]) -> bool:
     """Check whether a frame's module belongs to click or pyclig."""
     name = str(namespace.get("__name__", ""))
     return name.partition(".")[0] in {"click", "pyclig"}
-
-
-def run(func: Callable[[], int | None], *, errors: Errors = ()) -> NoReturn:
-    """Run a parser-less entry point, e.g. a pre-commit hook shim.
-
-    NOTE: For a CLI with commands & flags use `pyclig.group` instead. `run`
-    shares its error handling & logging but leaves `sys.argv` to `func`.
-
-    ```python
-    def ruff_format() -> NoReturn:
-        pyclig.run(
-            lambda: core_ruff_format(sys.argv[1:]),
-            errors=(exceptions.Error,),
-        )
-    ```
-
-    Args:
-        func: The entry point logic, returning an exit code or None.
-        errors: Expected exception types, reported without a traceback.
-    """
-    configure_streams()
-    out, err = make_consoles()
-    prog = Path(sys.argv[0]).stem or "main"
-    state = State(out, err, package_of(func, default=prog), errors)
-    with _logging.scoped(state.package):
-        _logging.configure(state.package, err, debug=False)
-        code = execute(func, state, prog=prog)
-    sys.exit(code)
