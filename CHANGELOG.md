@@ -44,7 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rejects a subcommand that sets `errors=`
 - `pyclig.run()` enters a `Context`, so a `pass_context` shim gets `ctx.err`
 - `pyclig.testing.invoke` takes any `pyclig.Command` & gives the run `err_tty`
-- `-d` is the first `GlobalOption`; a command's own `-d` (e.g. `-d/--dir`) wins & `--debug` stays
+- `-d` is the first `GlobalOption`; a command's own `-d` (e.g. `-d/--dir`) wins & `--debug` stays;
+  likewise an app's `-v/--verbose` keeps `--version` as the long form only
 
 ### Fixed
 

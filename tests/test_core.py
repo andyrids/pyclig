@@ -253,6 +253,36 @@ def test_command_decorator_adds_version() -> None:
     assert invoke(tool, ["-v"]).stdout == "tool 0.0.0+unknown\n"
 
 
+def test_app_verbose_wins_over_version_short() -> None:
+    """Assert an app's `-v/--verbose` keeps `--version` as long form only."""
+
+    @pyclig.command("loud", examples=["loud -v"])
+    @click.option("-v", "--verbose", is_flag=True, help="Say more.")
+    def loud(verbose: bool) -> None:
+        """Run loudly."""
+        click.echo(f"verbose={verbose}")
+
+    assert invoke(loud, ["-v"]).stdout == "verbose=True\n"
+    assert invoke(loud, ["--version"]).stdout == "loud 0.0.0+unknown\n"
+    help_text = invoke(loud, ["--help"]).stdout
+    assert "-v, --verbose" in help_text
+    assert "  --version  " in help_text
+    assert "-v, --version" not in help_text
+
+
+def test_app_version_flag_replaces_pyclig_version() -> None:
+    """Assert an app's own `-v/--version` leaves no pyclig version option."""
+
+    @pyclig.group("own", examples=["own"])
+    @click.option("-v", "--version", is_flag=True, help="The app's own.")
+    def own(version: bool) -> None:
+        """Group commands with an app version flag."""
+        click.echo(f"own={version}")
+
+    assert invoke(own, ["--version"]).stdout.startswith("own=True\n")
+    assert "Show the version and exit." not in invoke(own, ["--help"]).stdout
+
+
 def test_custom_help_names_reach_subcommands() -> None:
     """Assert a group's own `help_option_names` replace `-h` below it."""
 

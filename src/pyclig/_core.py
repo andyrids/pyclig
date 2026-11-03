@@ -723,9 +723,18 @@ def command(
 
 
 def _versioned(f: Callable[..., Any]) -> Callable[..., Any]:
-    """Add `-v/--version` to a command function."""
+    """Add `-v/--version` to a command function, minus names its options take.
+
+    NOTE: An app's own spelling wins, as for the run flags: `-v/--verbose`
+    keeps `--version` alone, and an app's own `--version` leaves nothing.
+    """
+    params = getattr(f, "__click_params__", [])
+    taken = {name for p in params for name in (*p.opts, *p.secondary_opts)}
+    names = [name for name in ("-v", "--version") if name not in taken]
+    if not names:
+        return f
     return click.custom_version_option(
-        _show_version, "-v", "--version", help="Show the version and exit."
+        _show_version, *names, help="Show the version and exit."
     )(f)
 
 

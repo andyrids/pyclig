@@ -69,7 +69,7 @@ Commands take `examples=` too: their `--help` leads with them under `EXAMPLES:`.
 | `-h` anywhere | Help, exit 0, even after a typo - anywhere before `--` |
 | Bare `prog` | Concise help on STDOUT, exit 0 - `--help` without options & epilog |
 | `prog cmd` needing arguments | Concise help on STDERR, exit 2 (`no_args_is_help=True`) |
-| `-v`, `--version` | `prog version` from the distribution metadata, else `0.0.0+unknown` |
+| `-v`, `--version` | `prog version` from the metadata, else `0.0.0+unknown`; an app's `-v` wins |
 | Run flags | `-d`, `-q`, `--no-color` & `--no-input`, before or after the command name |
 | Subcommands | `@cli.command()` & `@cli.group()` create `pyclig.Command` & `pyclig.Group` |
 | Arguments | Reach commands as typed - globs & variables are not expanded on Windows either |
