@@ -179,6 +179,77 @@ def test_global_option_before_or_after_command(
     assert "audited" in result.stdout.splitlines()
 
 
+trace_calls: list[tuple[str | None, bool]] = []
+"""Every `(command, value)` the `--trace` callback below was called with."""
+
+
+def _record(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Record a `--trace` callback call."""
+    trace_calls.append((ctx.info_name, value))
+
+
+@pyclig.group("traced", examples=["traced other"])
+@click.option(
+    "-t",
+    "--trace",
+    cls=pyclig.GlobalOption,
+    callback=_record,
+    envvar="TRACED_TRACE",
+    hidden=True,
+    help="Trace the run.",
+)
+def traced_cli() -> None:
+    """Group commands under a hidden, env-backed global option."""
+
+
+@traced_cli.command()
+@click.option("-t", "--tag", help="A tag, taking `-t` for itself.")
+def tagged(tag: str | None) -> None:
+    """Print `--tag`."""
+    click.echo(f"tag={tag}")
+
+
+@traced_cli.command()
+def other() -> None:
+    """Do nothing."""
+
+
+@pytest.fixture
+def traced() -> Group:
+    """Return the traced CLI with its callback record cleared."""
+    trace_calls.clear()
+    return traced_cli
+
+
+def test_global_option_callback_runs_only_when_given(traced: Group) -> None:
+    """Assert the callback never runs with False, whatever the position."""
+    invoke(traced, ["--trace", "other"])
+    assert trace_calls == [("traced", True)]
+    trace_calls.clear()
+    invoke(traced, ["other", "--trace"])
+    assert trace_calls == [("other", True)]
+    trace_calls.clear()
+    invoke(traced, ["other"])
+    assert trace_calls == []
+
+
+def test_global_option_from_env_runs_at_each_level(traced: Group) -> None:
+    """Assert an `envvar=` flag runs the callback once per level, given."""
+    invoke(traced, ["other"], env={"TRACED_TRACE": "1"})
+    assert trace_calls == [("traced", True), ("other", True)]
+
+
+def test_trimmed_global_option_keeps_its_attributes(traced: Group) -> None:
+    """Assert a flag trimmed of a taken name keeps `envvar`, `hidden` etc."""
+    result = invoke(traced, ["tagged"], env={"TRACED_TRACE": "1"})
+    assert result.stdout == "tag=None\n"
+    assert trace_calls == [("traced", True), ("tagged", True)]
+    assert "--trace" not in invoke(traced, ["tagged", "--help"]).stdout
+    trace_calls.clear()
+    assert invoke(traced, ["tagged", "--trace"]).exit_code == 0
+    assert trace_calls == [("tagged", True)]
+
+
 def test_global_option_reaches_added_command(sample: Group) -> None:
     """Assert `add_command` gives a command the group's global options."""
 

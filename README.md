@@ -94,13 +94,13 @@ A command's own option with the same spelling wins: `copy -d /tmp` reaches the a
 subcommand's names them on one line.
 
 An application declares its own with `cls=pyclig.GlobalOption` on the command whose subtree
-accepts it, usually the root group. The callback is a plain click callback, called wherever the
-flag is parsed:
+accepts it, usually the root group. The callback is a plain click callback. It runs only when
+the flag was given - on the command line or through `envvar=` - and may run once per level of a
+nested command line that sees it (each level reads the environment), so it must be idempotent:
 
 ```python
 def _trace(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-    if value:
-        ctx.meta["trace"] = True
+    ctx.meta["trace"] = True
 
 
 @pyclig.group("dkais")

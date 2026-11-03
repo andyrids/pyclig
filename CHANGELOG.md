@@ -21,7 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `pyclig.command()`: a standalone command with the runner, run flags, `-h` & `-v/--version`
-- `pyclig.GlobalOption`: a run flag declared once, accepted on every command below it
+- `pyclig.GlobalOption`: a run flag declared once, accepted on every command below it; its
+  callback runs only where the flag was given, so it must be idempotent
 - `-q/--quiet`, `--no-color` & `--no-input` on every command, before or after its name
 - `ctx.quiet`, `ctx.can_prompt` & `ctx.format` (`human`, `plain` or `json`)
 - `pyclig.options.plain()`: `--plain`, per command; `--json` now sets `ctx.format` too

@@ -16,6 +16,7 @@ License:
     SPDX-License-Identifier: Apache-2.0
 """
 
+import copy
 from collections.abc import Callable, Collection, Sequence
 from typing import Any
 
@@ -27,9 +28,12 @@ from pyclig import _logging, _output, _run
 class GlobalOption(click.Option):
     """A run flag, accepted on its command & every command below it.
 
-    NOTE: Eager & never passed to the command function: the callback acts
+    NOTE: Eager & never passed to the command function: the callback runs
     as soon as the flag is parsed, before or after a command name, so `-d`
-    applies even when a later option is invalid.
+    applies even when a later option is invalid. It runs only when the flag
+    was given - on the command line or through `envvar=` - and may run once
+    per level of a nested command line that sees it, so it must be
+    idempotent.
     """
 
     def __init__(
@@ -43,16 +47,23 @@ class GlobalOption(click.Option):
 
         Args:
             param_decls: The flag names, e.g. `["--trace"]`.
-            callback: Called with the context, this flag & whether it was
-                given, each time a command parses it.
+            callback: Called with the context, this flag & True wherever
+                the flag was given; never for its default.
             **kwargs: Keyword `click.Option` arguments, e.g. `help`.
         """
+
+        def when_given(
+            ctx: click.Context, param: click.Parameter, value: bool
+        ) -> None:
+            if value:
+                callback(ctx, param, value)
+
         super().__init__(
             param_decls,
             is_flag=True,
             is_eager=True,
             expose_value=False,
-            callback=callback,
+            callback=when_given,
             **kwargs,
         )
 
@@ -63,25 +74,23 @@ class GlobalOption(click.Option):
             names: The option names already taken.
 
         Returns:
-            Itself when no name clashes, a copy with the remaining names, or
-            None when none remain.
+            Itself when no name clashes, a copy with the remaining names &
+            everything else unchanged, or None when none remain.
         """
         kept = [opt for opt in self.opts if opt not in names]
         if len(kept) == len(self.opts):
             return self
         if not kept:
             return None
-        assert self.name is not None
-        assert self.callback is not None
-        return GlobalOption(
-            [*kept, self.name], callback=self.callback, help=self.help
-        )
+        trimmed = copy.copy(self)
+        trimmed.opts = kept
+        return trimmed
 
 
 def _debug(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     """Switch the run's logging to `DEBUG` as soon as `-d` is parsed."""
     state = _run.state_of(ctx)
-    if value and state and not state.debug and not ctx.resilient_parsing:
+    if state and not state.debug and not ctx.resilient_parsing:
         state.debug = True
         _logging.configure(state.package, state.err, debug=True)
 
@@ -89,7 +98,7 @@ def _debug(ctx: click.Context, param: click.Parameter, value: bool) -> None:
 def _quiet(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     """Drop `info` lines & animation; notices, hints & STDOUT stay."""
     state = _run.state_of(ctx)
-    if value and state and not ctx.resilient_parsing:
+    if state and not ctx.resilient_parsing:
         state.quiet = True
         _output.silence(state.err)
 
@@ -97,14 +106,14 @@ def _quiet(ctx: click.Context, param: click.Parameter, value: bool) -> None:
 def _no_input(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     """Refuse every prompt: `confirm` & `prompt=` options fail instead."""
     state = _run.state_of(ctx)
-    if value and state and not ctx.resilient_parsing:
+    if state and not ctx.resilient_parsing:
         state.no_input = True
 
 
 def _no_color(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     """Drop colour from both consoles, keeping bold & dim, like `NO_COLOR`."""
     state = _run.state_of(ctx)
-    if value and state and not ctx.resilient_parsing:
+    if state and not ctx.resilient_parsing:
         state.out.no_color = True
         state.err.no_color = True
 
