@@ -15,6 +15,10 @@ Ctrl-C or its own errors to print a tailored message first.
 | Broken STDOUT pipe         | - (the reader left, e.g. `head`)     | 1      |
 | Any other exception        | traceback, `error:` & bug hint       | 70     |
 
+An exception type in `errors` may carry a `hint` (printed dim, after the
+message, where the eye lands) & an `exit_code` replacing 1. Both are read by
+attribute, so the application's exceptions need no pyclig import.
+
 License:
     SPDX-License-Identifier: Apache-2.0
 """
@@ -353,7 +357,11 @@ def _failed(error: Exception, state: State, prog: str) -> int:
             print_exception(state.err, error)
         message = str(error).strip() or type(error).__name__
         notice(state.err, level="error", message=message)
-        return ExitCode.FAILURE
+        hint = getattr(error, "hint", None)
+        if hint:
+            info(state.err, message=str(hint))
+        code = getattr(error, "exit_code", None)
+        return code if isinstance(code, int) else ExitCode.FAILURE
     print_exception(state.err, error)
     detail = str(error).strip()
     message = f"unexpected {type(error).__name__}"

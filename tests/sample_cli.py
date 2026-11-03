@@ -23,6 +23,18 @@ class SampleError(Exception):
     """An expected failure of the sample CLI."""
 
 
+class HintedError(SampleError):
+    """An expected failure with a remedy, printed after the message."""
+
+    hint = "Free some space, then re-run."
+
+
+class CodedError(SampleError):
+    """An expected failure with its own exit code."""
+
+    exit_code = 3
+
+
 class Year(click.ParamType[int]):
     """A four-digit year; `crash` simulates a bug in the type."""
 
@@ -104,7 +116,17 @@ def process(start: int) -> None:
 @click.option(
     "--kind",
     type=click.Choice(
-        ["mapped", "crash", "interrupt", "eof", "oserror", "usage", "code"]
+        [
+            "mapped",
+            "hinted",
+            "coded",
+            "crash",
+            "interrupt",
+            "eof",
+            "oserror",
+            "usage",
+            "code",
+        ]
     ),
     required=True,
 )
@@ -112,6 +134,10 @@ def fail(kind: str) -> int:
     """Fail in the way given by `--kind`."""
     if kind == "mapped":
         raise SampleError("disk full [/b] :warning:")
+    if kind == "hinted":
+        raise HintedError("disk full")
+    if kind == "coded":
+        raise CodedError("partial")
     if kind == "crash":
         raise RuntimeError("boom")
     if kind == "interrupt":

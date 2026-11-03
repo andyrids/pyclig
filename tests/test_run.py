@@ -106,6 +106,30 @@ def test_mapped_error_without_traceback(sample: Group) -> None:
     assert result.stderr == "error: disk full [/b] :warning:\n"
 
 
+def test_mapped_error_prints_hint_last(sample: Group) -> None:
+    """Assert an error's `hint` prints after `error:`, where the eye lands."""
+    result = invoke(sample, ["fail", "--kind", "hinted"])
+    assert result.exit_code == pyclig.ExitCode.FAILURE
+    assert result.stderr == "error: disk full\nFree some space, then re-run.\n"
+
+
+def test_mapped_error_hint_dim_on_a_terminal(sample: Group) -> None:
+    """Assert the hint line is dim on a terminal."""
+    result = invoke(
+        sample, ["fail", "--kind", "hinted"], err_tty=True, color=True
+    )
+    assert result.stderr.endswith(
+        "\x1b[2mFree some space, then re-run.\x1b[0m\n"
+    )
+
+
+def test_mapped_error_exit_code(sample: Group) -> None:
+    """Assert an error's `exit_code` replaces the default 1."""
+    result = invoke(sample, ["fail", "--kind", "coded"])
+    assert result.exit_code == 3
+    assert result.stderr == "error: partial\n"
+
+
 def test_mapped_error_with_debug_prints_traceback(sample: Group) -> None:
     """Assert `-d` prints the traceback of an expected error first."""
     result = invoke(sample, ["fail", "--kind", "mapped", "-d"])
