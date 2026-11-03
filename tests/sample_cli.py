@@ -235,6 +235,15 @@ def audit(ctx: pyclig.Context) -> None:
 
 
 @cli.command()
+@pyclig.options.json_output()
+@pyclig.options.plain()
+@pyclig.pass_context
+def rows(ctx: pyclig.Context, json_output: bool) -> None:
+    """Print the run's output format & the `--json` value."""
+    ctx.out.print(f"format={ctx.format} json={json_output}")
+
+
+@cli.command()
 @click.option("--token", prompt="Token", help="The access token.")
 def login(token: str) -> None:
     """Print `--token`, prompting for it when it is not given."""

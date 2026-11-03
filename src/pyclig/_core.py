@@ -103,6 +103,15 @@ class Context(click.Context):
         return _require_state(self).quiet
 
     @property
+    def format(self) -> _run.Format:
+        """The STDOUT format to produce: `human`, `plain` or `json`.
+
+        NOTE: `human` on a terminal, else `plain`; `--plain` & `--json`
+        (`pyclig.options`) override it, `--json` winning in any order.
+        """
+        return _require_state(self).format
+
+    @property
     def can_prompt(self) -> bool:
         """Whether STDIN & STDERR are terminals and `--no-input` was not given.
 
@@ -486,6 +495,7 @@ class Command(click.Command):
             self.errors,
             in_tty=_run.is_tty(sys.stdin) if in_tty is None else in_tty,
             err_tty=_run.is_tty(sys.stderr) if err_tty is None else err_tty,
+            format="human" if out.is_terminal else "plain",
         )
         click_main = super().main
         with _logging.scoped(package):

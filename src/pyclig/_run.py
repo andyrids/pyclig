@@ -32,7 +32,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, NoReturn, TextIO
+from typing import Any, Literal, NoReturn, TextIO
 
 import click
 from rich.console import Console
@@ -43,6 +43,9 @@ from pyclig._output import _plain, hint, notice, print_exception
 
 Errors = tuple[type[Exception], ...]
 """Expected exception types, reported as `error: message` & exit 1."""
+
+Format = Literal["human", "plain", "json"]
+"""The STDOUT format a command should produce (`ctx.format`)."""
 
 _ISSUE_LABELS = frozenset(
     {"bugreports", "bugs", "bugtracker", "issues", "issuetracker", "tracker"}
@@ -71,6 +74,8 @@ class State:
         in_tty: Whether STDIN is a terminal, so a prompt can be answered.
         err_tty: Whether STDERR is a terminal, so a prompt can be seen -
             the real `isatty`, which `FORCE_COLOR` does not change.
+        format: The STDOUT format: `human` on a terminal, else `plain`,
+            unless `--plain` or `--json` says otherwise.
     """
 
     out: Console
@@ -82,6 +87,7 @@ class State:
     no_input: bool = False
     in_tty: bool = False
     err_tty: bool = False
+    format: Format = "plain"
 
     @property
     def can_prompt(self) -> bool:
