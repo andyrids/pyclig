@@ -12,7 +12,10 @@ import rich
 before = set(sys.modules)
 import pyclig
 new = set(sys.modules) - before
-heavy = ("rich.traceback", "rich.logging", "pygments", "importlib.metadata")
+heavy = (
+    "rich.traceback", "rich.logging", "pygments", "importlib.metadata",
+    "pyclig._conformance", "pyclig.testing", "click.testing",
+)
 print(json.dumps({
     "heavy": sorted(m for m in new if m.startswith(heavy)),
     "root_handlers": len(logging.getLogger().handlers),

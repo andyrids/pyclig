@@ -19,7 +19,7 @@ USAGE_ERRORS = [
         "error: Invalid value for '--start': invalid year `nope` - use YYYY",
         "sample list",
     ),
-    (["list", "--nope"], "error: No such option '--nope'.", "sample list"),
+    (["list", "--bogus"], "error: No such option '--bogus'.", "sample list"),
     (
         ["list", "--start"],
         "error: Option '--start' requires an argument.",
@@ -82,13 +82,30 @@ def test_missing_required_option_names_env_var(sample: Group) -> None:
     )
 
 
-def test_no_args_is_help_prints_help_to_stderr(sample: Group) -> None:
-    """Assert a `no_args_is_help` command prints its help to STDERR, exit 2."""
+def test_no_args_is_help_prints_concise_help_to_stderr(sample: Group) -> None:
+    """Assert a `no_args_is_help` command prints concise help to STDERR, 2."""
     result = invoke(sample, ["process"])
     assert result.exit_code == pyclig.ExitCode.USAGE
     assert result.stdout == ""
-    assert result.stderr.startswith("USAGE:\n  sample process [options]")
+    lines = result.stderr.splitlines()
+    assert lines[:4] == [
+        "USAGE:",
+        "  sample process [options]",
+        "",
+        "  Process sample items.",
+    ]
+    assert lines[-1] == "Try 'sample process --help' for more information."
+    assert "OPTIONS:" not in lines
     assert "error:" not in result.stderr
+
+
+def test_plain_click_child_no_args_prints_full_help(sample: Group) -> None:
+    """Assert a plain click child with `no_args_is_help` keeps click's help."""
+    result = invoke(sample, ["plain"])
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert result.stderr.startswith("Usage: sample plain [OPTIONS] ITEM\n")
+    assert "Options:" in result.stderr
 
 
 def test_mapped_error_without_traceback(sample: Group) -> None:
@@ -96,6 +113,50 @@ def test_mapped_error_without_traceback(sample: Group) -> None:
     result = invoke(sample, ["fail", "--kind", "mapped"])
     assert result.exit_code == pyclig.ExitCode.FAILURE
     assert result.stderr == "error: disk full [/b] :warning:\n"
+
+
+def test_mapped_error_prints_hint_last(sample: Group) -> None:
+    """Assert an error's `hint` prints after `error:`, where the eye lands."""
+    result = invoke(sample, ["fail", "--kind", "hinted"])
+    assert result.exit_code == pyclig.ExitCode.FAILURE
+    assert result.stderr == "error: disk full\nFree some space, then re-run.\n"
+
+
+def test_mapped_error_hint_dim_on_a_terminal(sample: Group) -> None:
+    """Assert the hint line is dim on a terminal."""
+    result = invoke(
+        sample, ["fail", "--kind", "hinted"], err_tty=True, color=True
+    )
+    assert result.stderr.endswith(
+        "\x1b[2mFree some space, then re-run.\x1b[0m\n"
+    )
+
+
+def test_mapped_error_exit_code(sample: Group) -> None:
+    """Assert an error's `exit_code` replaces the default 1."""
+    result = invoke(sample, ["fail", "--kind", "coded"])
+    assert result.exit_code == 3
+    assert result.stderr == "error: partial\n"
+
+
+@pytest.mark.parametrize(
+    "code", [0, True, "nope", None], ids=["zero", "bool", "text", "none"]
+)
+def test_mapped_error_exit_code_must_be_a_non_zero_int(code: object) -> None:
+    """Assert an `exit_code` that is not a non-zero, non-bool int gives 1."""
+
+    class Odd(Exception):
+        exit_code = code
+
+    @pyclig.command("odd", errors=(Odd,))
+    def odd() -> None:
+        """Fail oddly."""
+        raise Odd("boom")
+
+    result = invoke(odd)
+    assert result.exit_code == 1
+    assert not isinstance(result.exit_code, bool)
+    assert result.stderr == "error: boom\n"
 
 
 def test_mapped_error_with_debug_prints_traceback(sample: Group) -> None:
@@ -247,6 +308,23 @@ def test_piped_output_styled_when_forced(
     assert "\x1b[1;31merror:" in result.stderr
 
 
+def test_forced_colour_means_colour_only(run_sample: RunSample) -> None:
+    """Assert `FORCE_COLOR` colours piped notices without terminal layout."""
+    message = " ".join(["word"] * 30)
+    result = run_sample("show", "--value", message, env={"FORCE_COLOR": "1"})
+    assert result.returncode == 0
+    assert result.stderr.splitlines() == [
+        f"\x1b[1;33mwarning:\x1b[0m {message}",
+        f"\x1b[1;31merror:\x1b[0m {message}",
+    ]
+
+
+def test_forced_colour_streams_stay_pipes(run_sample: RunSample) -> None:
+    """Assert `FORCE_COLOR` leaves a piped console non-terminal & static."""
+    result = run_sample("streams", env={"FORCE_COLOR": "1"})
+    assert result.stderr == "out=False err=False live=False prompt=False\n"
+
+
 def test_no_color_removes_colour(run_sample: RunSample) -> None:
     """Assert `NO_COLOR` drops colour, even when styling is forced."""
     result = run_sample(
@@ -324,6 +402,17 @@ def test_run_maps_errors(capsys: pytest.CaptureFixture[str]) -> None:
     code, stderr = _run_hook(lambda: _raise(ValueError("oops")), capsys)
     assert code == pyclig.ExitCode.INTERNAL
     assert "error: unexpected ValueError: oops" in stderr
+
+
+def test_run_enters_a_context(capsys: pytest.CaptureFixture[str]) -> None:
+    """Assert a `pass_context` shim run by `pyclig.run` gets the consoles."""
+
+    @pyclig.pass_context
+    def shim(ctx: pyclig.Context) -> int:
+        pyclig.notice(ctx.err, level="warning", message="from the shim")
+        return 0
+
+    assert _run_hook(shim, capsys) == (0, "warning: from the shim\n")
 
 
 def test_run_logs_warnings(capsys: pytest.CaptureFixture[str]) -> None:

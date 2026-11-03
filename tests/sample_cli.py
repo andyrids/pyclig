@@ -8,6 +8,7 @@ License:
 
 import errno
 import logging
+import threading
 import time
 
 import click
@@ -21,6 +22,18 @@ logger = logging.getLogger(__package__ or "sample")
 
 class SampleError(Exception):
     """An expected failure of the sample CLI."""
+
+
+class HintedError(SampleError):
+    """An expected failure with a remedy, printed after the message."""
+
+    hint = "Free some space, then re-run."
+
+
+class CodedError(SampleError):
+    """An expected failure with its own exit code."""
+
+    exit_code = 3
 
 
 class Year(click.ParamType[int]):
@@ -54,12 +67,21 @@ class Year(click.ParamType[int]):
         return int(value)
 
 
+def _audit(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Record `--audit` for the run, wherever it is given."""
+    if value:
+        ctx.meta["audit"] = True
+
+
 @pyclig.group(
     "sample",
     short_help="Sample data manager",
     examples=["sample list --start 2026"],
     errors=(SampleError,),
     epilog="For more information see https://example.com/sample.",
+)
+@click.option(
+    "--audit", cls=pyclig.GlobalOption, callback=_audit, help="Audit the run."
 )
 @click.pass_context
 def cli(ctx: click.Context) -> None:
@@ -104,7 +126,17 @@ def process(start: int) -> None:
 @click.option(
     "--kind",
     type=click.Choice(
-        ["mapped", "crash", "interrupt", "eof", "oserror", "usage", "code"]
+        [
+            "mapped",
+            "hinted",
+            "coded",
+            "crash",
+            "interrupt",
+            "eof",
+            "oserror",
+            "usage",
+            "code",
+        ]
     ),
     required=True,
 )
@@ -112,6 +144,10 @@ def fail(kind: str) -> int:
     """Fail in the way given by `--kind`."""
     if kind == "mapped":
         raise SampleError("disk full [/b] :warning:")
+    if kind == "hinted":
+        raise HintedError("disk full")
+    if kind == "coded":
+        raise CodedError("partial")
     if kind == "crash":
         raise RuntimeError("boom")
     if kind == "interrupt":
@@ -183,6 +219,63 @@ def purge(ctx: pyclig.Context, force: bool) -> None:
 
 
 @cli.command()
+@click.option("-d", "--dir", help="The destination directory.")
+@pyclig.pass_context
+def copy(ctx: pyclig.Context, dir: str | None) -> None:  # noqa: A002
+    """Print `--dir`, which takes `-d` from the run flag."""
+    logger.debug("copy debug record")
+    ctx.out.print(f"dir={dir}")
+
+
+@cli.command()
+@pyclig.pass_context
+def audit(ctx: pyclig.Context) -> None:
+    """Print whether `--audit` was given anywhere."""
+    ctx.out.print("audited" if ctx.meta.get("audit") else "unaudited")
+
+
+@cli.command()
+@pyclig.options.json_output()
+@pyclig.options.plain()
+@pyclig.pass_context
+def rows(ctx: pyclig.Context, json_output: bool) -> None:
+    """Print the run's output format & the `--json` value."""
+    ctx.out.print(f"format={ctx.format} json={json_output}")
+
+
+@cli.command()
+@click.option("--token", prompt="Token", help="The access token.")
+def login(token: str) -> None:
+    """Print `--token`, prompting for it when it is not given."""
+    click.echo(f"token={token}")
+
+
+@cli.command()
+@click.option("--name", prompt="Name", default="me", help="Who to greet.")
+@click.option(
+    "--when", prompt="When", default=lambda: "now", help="When to greet."
+)
+def greet(name: str, when: str) -> None:
+    """Print a greeting, prompting with defaults when values are not given."""
+    click.echo(f"{name} {when}")
+
+
+@cli.command()
+@pyclig.pass_context
+def chatter(ctx: pyclig.Context) -> None:
+    """Print info from the main & a worker thread, a warning & STDOUT."""
+    pyclig.info(ctx.err, message="main info")
+    worker = threading.Thread(
+        target=pyclig.info, args=(ctx.err,), kwargs={"message": "worker info"}
+    )
+    worker.start()
+    worker.join()
+    logger.warning("kept warning")
+    ctx.err.print(Text(f"live={ctx.err.is_interactive}"))
+    ctx.out.print(f"quiet={ctx.quiet}")
+
+
+@cli.command()
 @pyclig.pass_context
 def streams(ctx: pyclig.Context) -> None:
     """Interleave `click.echo` & console output, then report the TTYs."""
@@ -190,7 +283,8 @@ def streams(ctx: pyclig.Context) -> None:
     ctx.out.print("two")
     click.echo("three")
     tty = f"out={ctx.out.is_terminal} err={ctx.err.is_terminal}"
-    ctx.err.print(Text(f"{tty} live={ctx.err.is_interactive}"))
+    live = f"live={ctx.err.is_interactive} prompt={ctx.can_prompt}"
+    ctx.err.print(Text(f"{tty} {live}"))
 
 
 @cli.group()
@@ -199,11 +293,23 @@ def grp() -> None:
 
 
 @grp.command()
-@click.pass_obj
-def leaf(obj: dict[str, str]) -> None:
+@click.pass_context
+def leaf(ctx: click.Context) -> None:
     """Log a debug record & print the root's `ctx.obj` entry."""
     logger.debug("leaf debug record")
-    click.echo(obj["root"])
+    click.echo(ctx.obj["root"])
+    if ctx.meta.get("audit"):
+        click.echo("audited")
+
+
+@click.command(no_args_is_help=True)
+@click.argument("item")
+def plain(item: str) -> None:
+    """Print `item` - a plain click command, outside the pyclig conventions."""
+    click.echo(item)
+
+
+cli.add_command(plain)
 
 
 if __name__ == "__main__":

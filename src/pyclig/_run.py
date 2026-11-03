@@ -15,6 +15,12 @@ Ctrl-C or its own errors to print a tailored message first.
 | Broken STDOUT pipe         | - (the reader left, e.g. `head`)     | 1      |
 | Any other exception        | traceback, `error:` & bug hint       | 70     |
 
+An exception type in `errors` may carry a `hint` (printed dim, after the
+message, where the eye lands) & an `exit_code` replacing 1 - honoured only
+when it is a non-zero, non-bool `int`, since an error must not exit 0. Both
+are read by attribute, so the application's exceptions need no pyclig
+import.
+
 License:
     SPDX-License-Identifier: Apache-2.0
 """
@@ -27,18 +33,19 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
-from typing import NoReturn, TextIO
+from typing import Any, Literal, TextIO
 
 import click
 from rich.console import Console
 
-from pyclig import _logging
 from pyclig._exit import ExitCode
-from pyclig._output import _plain, info, notice, print_exception
+from pyclig._output import _plain, hint, notice, print_exception
 
 Errors = tuple[type[Exception], ...]
 """Expected exception types, reported as `error: message` & exit 1."""
+
+Format = Literal["human", "plain", "json"]
+"""The STDOUT format a command should produce (`ctx.format`)."""
 
 _ISSUE_LABELS = frozenset(
     {"bugreports", "bugs", "bugtracker", "issues", "issuetracker", "tracker"}
@@ -47,6 +54,9 @@ _ISSUE_LABELS = frozenset(
 
 PIPE_ERRNOS = frozenset({errno.EPIPE, errno.EINVAL})
 """A broken pipe's `OSError.errno`: EPIPE on POSIX, EINVAL on Windows."""
+
+STATE_KEY = "pyclig.state"
+"""The `ctx.meta` key holding the run's `State`."""
 
 
 @dataclass
@@ -59,8 +69,13 @@ class State:
         package: The application package - its logger & distribution.
         errors: Expected exception types.
         debug: Whether `-d/--debug` was given.
-        in_tty: Whether STDIN is an interactive terminal, so a prompt can
-            be answered.
+        quiet: Whether `-q/--quiet` was given.
+        no_input: Whether `--no-input` was given.
+        in_tty: Whether STDIN is a terminal, so a prompt can be answered.
+        err_tty: Whether STDERR is a terminal, so a prompt can be seen -
+            the real `isatty`, which `FORCE_COLOR` does not change.
+        format: The STDOUT format: `human` on a terminal, else `plain`,
+            unless `--plain` or `--json` says otherwise.
     """
 
     out: Console
@@ -68,7 +83,29 @@ class State:
     package: str
     errors: Errors = ()
     debug: bool = False
+    quiet: bool = False
+    no_input: bool = False
     in_tty: bool = False
+    err_tty: bool = False
+    format: Format = "plain"
+
+    @property
+    def can_prompt(self) -> bool:
+        """Whether a prompt can be seen & answered, and was not refused."""
+        return self.in_tty and self.err_tty and not self.no_input
+
+
+def state_of(ctx: click.Context) -> State | None:
+    """Return the run's state, if the run was started by `Command.main`.
+
+    Args:
+        ctx: Any context of the run.
+
+    Returns:
+        The state, or None outside a run.
+    """
+    state = ctx.meta.get(STATE_KEY)
+    return state if isinstance(state, State) else None
 
 
 class Interrupted(Exception):
@@ -128,14 +165,27 @@ def _console(*, stderr: bool) -> Console:
     (`file=None`), so a test runner's captured streams are honoured. Rich
     falls back to its legacy Windows renderer, which drops colour, whenever
     the stream is not a console; a pipe is written with ANSI codes instead.
+    `FORCE_COLOR` means colour only: on a pipe the console keeps the colour
+    system Rich would force, but stays a non-terminal, so output is neither
+    wrapped nor animated. `TTY_COMPATIBLE=1` still makes a pipe a terminal.
     """
     piped = not is_tty(sys.stderr if stderr else sys.stdout)
+    legacy_windows = False if sys.platform == "win32" and piped else None
+    settings: dict[str, Any] = {}
+    forced = os.environ.get("FORCE_COLOR")
+    if piped and forced and os.environ.get("TTY_COMPATIBLE") not in {"0", "1"}:
+        probe = Console(force_terminal=True, legacy_windows=legacy_windows)
+        settings = {
+            "force_terminal": False,
+            "color_system": probe.color_system,
+        }
     return Console(
         stderr=stderr,
         markup=False,
         emoji=False,
         highlight=False,
-        legacy_windows=False if sys.platform == "win32" and piped else None,
+        legacy_windows=legacy_windows,
+        **settings,
     )
 
 
@@ -282,9 +332,9 @@ def _report_usage_error(err: Console, error: click.UsageError) -> None:
     if ctx is None:
         return
     _plain(err, f"\n{ctx.get_usage()}\n")
-    hint = help_hint(ctx)
-    if hint:
-        info(err, message=hint)
+    pointer = help_hint(ctx)
+    if pointer:
+        hint(err, message=pointer)
 
 
 def help_hint(ctx: click.Context) -> str | None:
@@ -340,6 +390,12 @@ def _failed(error: Exception, state: State, prog: str) -> int:
             print_exception(state.err, error)
         message = str(error).strip() or type(error).__name__
         notice(state.err, level="error", message=message)
+        remedy = getattr(error, "hint", None)
+        if remedy:
+            hint(state.err, message=str(remedy))
+        code = getattr(error, "exit_code", None)
+        if isinstance(code, int) and not isinstance(code, bool) and code != 0:
+            return code
         return ExitCode.FAILURE
     print_exception(state.err, error)
     detail = str(error).strip()
@@ -349,9 +405,9 @@ def _failed(error: Exception, state: State, prog: str) -> int:
         level="error",
         message=f"{message}: {detail}" if detail else message,
     )
-    hint = bug_hint(prog, state.package)
-    if hint:
-        info(state.err, message=hint)
+    report = bug_hint(prog, state.package)
+    if report:
+        hint(state.err, message=report)
     return ExitCode.INTERNAL
 
 
@@ -399,31 +455,3 @@ def _is_internal(namespace: dict[str, object]) -> bool:
     """Check whether a frame's module belongs to click or pyclig."""
     name = str(namespace.get("__name__", ""))
     return name.partition(".")[0] in {"click", "pyclig"}
-
-
-def run(func: Callable[[], int | None], *, errors: Errors = ()) -> NoReturn:
-    """Run a parser-less entry point, e.g. a pre-commit hook shim.
-
-    NOTE: For a CLI with commands & flags use `pyclig.group` instead. `run`
-    shares its error handling & logging but leaves `sys.argv` to `func`.
-
-    ```python
-    def ruff_format() -> NoReturn:
-        pyclig.run(
-            lambda: core_ruff_format(sys.argv[1:]),
-            errors=(exceptions.Error,),
-        )
-    ```
-
-    Args:
-        func: The entry point logic, returning an exit code or None.
-        errors: Expected exception types, reported without a traceback.
-    """
-    configure_streams()
-    out, err = make_consoles()
-    prog = Path(sys.argv[0]).stem or "main"
-    state = State(out, err, package_of(func, default=prog), errors)
-    with _logging.scoped(state.package):
-        _logging.configure(state.package, err, debug=False)
-        code = execute(func, state, prog=prog)
-    sys.exit(code)
