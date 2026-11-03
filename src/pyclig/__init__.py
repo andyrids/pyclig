@@ -15,6 +15,7 @@ from pyclig._core import (
     pass_context,
 )
 from pyclig._exit import ExitCode
+from pyclig._flags import GlobalOption
 from pyclig._output import hanging, info, notice
 from pyclig._run import run
 
@@ -22,6 +23,7 @@ __all__: list[str] = [
     "Command",
     "Context",
     "ExitCode",
+    "GlobalOption",
     "Group",
     "command",
     "confirm",

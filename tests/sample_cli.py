@@ -66,12 +66,21 @@ class Year(click.ParamType[int]):
         return int(value)
 
 
+def _audit(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Record `--audit` for the run, wherever it is given."""
+    if value:
+        ctx.meta["audit"] = True
+
+
 @pyclig.group(
     "sample",
     short_help="Sample data manager",
     examples=["sample list --start 2026"],
     errors=(SampleError,),
     epilog="For more information see https://example.com/sample.",
+)
+@click.option(
+    "--audit", cls=pyclig.GlobalOption, callback=_audit, help="Audit the run."
 )
 @click.pass_context
 def cli(ctx: click.Context) -> None:
@@ -209,6 +218,22 @@ def purge(ctx: pyclig.Context, force: bool) -> None:
 
 
 @cli.command()
+@click.option("-d", "--dir", help="The destination directory.")
+@pyclig.pass_context
+def copy(ctx: pyclig.Context, dir: str | None) -> None:  # noqa: A002
+    """Print `--dir`, which takes `-d` from the run flag."""
+    logger.debug("copy debug record")
+    ctx.out.print(f"dir={dir}")
+
+
+@cli.command()
+@pyclig.pass_context
+def audit(ctx: pyclig.Context) -> None:
+    """Print whether `--audit` was given anywhere."""
+    ctx.out.print("audited" if ctx.meta.get("audit") else "unaudited")
+
+
+@cli.command()
 @pyclig.pass_context
 def streams(ctx: pyclig.Context) -> None:
     """Interleave `click.echo` & console output, then report the TTYs."""
@@ -225,11 +250,13 @@ def grp() -> None:
 
 
 @grp.command()
-@click.pass_obj
-def leaf(obj: dict[str, str]) -> None:
+@click.pass_context
+def leaf(ctx: click.Context) -> None:
     """Log a debug record & print the root's `ctx.obj` entry."""
     logger.debug("leaf debug record")
-    click.echo(obj["root"])
+    click.echo(ctx.obj["root"])
+    if ctx.meta.get("audit"):
+        click.echo("audited")
 
 
 if __name__ == "__main__":

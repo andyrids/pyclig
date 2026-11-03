@@ -21,13 +21,12 @@ from typing import Any, Concatenate, NoReturn, ParamSpec, TypeVar
 import click
 from rich.console import Console
 
-from pyclig import _logging, _run
+from pyclig import _flags, _logging, _run
 from pyclig._exit import ExitCode
+from pyclig._flags import GlobalOption
 
 P = ParamSpec("P")
 R = TypeVar("R")
-
-_STATE = "pyclig.state"
 
 
 class HelpFormatter(click.HelpFormatter):
@@ -85,7 +84,7 @@ class Context(click.Context):
             kwargs["help_option_names"] = ["-h", "--help"]
         super().__init__(*args, **kwargs)
         if pyclig_state is not None:
-            self.meta[_STATE] = pyclig_state
+            self.meta[_run.STATE_KEY] = pyclig_state
 
     @property
     def out(self) -> Console:
@@ -98,15 +97,9 @@ class Context(click.Context):
         return _require_state(self).err
 
 
-def _state(ctx: click.Context) -> _run.State | None:
-    """Return the run's state, if the run was started by `Command.main`."""
-    state = ctx.meta.get(_STATE)
-    return state if isinstance(state, _run.State) else None
-
-
 def _require_state(ctx: click.Context) -> _run.State:
     """Return the run's state, or raise when there is none."""
-    state = _state(ctx)
+    state = _run.state_of(ctx)
     if state is None:
         raise RuntimeError(
             "the consoles exist only within a run started by a pyclig "
@@ -117,7 +110,7 @@ def _require_state(ctx: click.Context) -> _run.State:
 
 def _package(ctx: click.Context) -> str:
     """Return the application package of the run."""
-    state = _state(ctx)
+    state = _run.state_of(ctx)
     return state.package if state else ctx.find_root().info_name or ""
 
 
@@ -190,14 +183,6 @@ def confirm(ctx: click.Context, *, message: str, force: bool) -> None:
     click.confirm(message, default=False, abort=True, err=True)
 
 
-def _debug(ctx: click.Context, param: click.Parameter, value: bool) -> None:
-    """Switch the run's logging to `DEBUG` as soon as `-d` is parsed."""
-    state = _state(ctx)
-    if value and state and not state.debug and not ctx.resilient_parsing:
-        state.debug = True
-        _logging.configure(state.package, state.err, debug=True)
-
-
 def _show_version(ctx: click.Context) -> str:
     """Return the `-v/--version` line, e.g. `dkais 0.1.0`."""
     return f"{ctx.find_root().info_name} {_run.version(_package(ctx))}"
@@ -217,12 +202,14 @@ def _help_if_asked(ctx: click.Context, args: Sequence[str]) -> None:
 
 
 class Command(click.Command):
-    """A click command with `-d/--debug`, the pyclig help layout & runner.
+    """A click command with the run flags, the pyclig help layout & runner.
 
-    NOTE: `-d` is eager, so it takes effect even when a later option is
-    invalid. Usage errors raised while parsing are bound to this command, so
-    they show its usage. `main` runs the command with fresh consoles &
-    logging; `errors` is read from the command `main` is called on.
+    NOTE: The run flags (`-d/--debug` & any `GlobalOption` of an ancestor)
+    are added by `get_params`, so parsing, help & completion all see them;
+    a command's own option with the same spelling wins. Usage errors raised
+    while parsing are bound to this command, so they show its usage. `main`
+    runs the command with fresh consoles & logging; `errors` is read from
+    the command `main` is called on.
 
     Attributes:
         examples: Example invocations, listed under `EXAMPLES:`.
@@ -254,16 +241,20 @@ class Command(click.Command):
         super().__init__(name, **kwargs)
         self.examples = tuple(examples)
         self.errors = errors
-        self.params.append(
-            click.Option(
-                ["-d", "--debug"],
-                is_flag=True,
-                is_eager=True,
-                expose_value=False,
-                callback=_debug,
-                help="Show debug logging output.",
-            )
-        )
+
+    def get_params(self, ctx: click.Context) -> list[click.Parameter]:
+        """Return the own parameters, the global options, then help.
+
+        Args:
+            ctx: The command's context.
+
+        Returns:
+            The parameters, in parsing & help order.
+        """
+        help_option = self.get_help_option(ctx)
+        own = [p for p in super().get_params(ctx) if p is not help_option]
+        tail = [help_option] if help_option is not None else []
+        return [*own, *_flags.for_command(own, ctx), *tail]
 
     def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
         """Parse the arguments; a help flag wins over any usage error.
@@ -324,6 +315,44 @@ class Command(click.Command):
         with formatter.section("Examples"):
             for example in self.examples:
                 formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
+
+    def format_options(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write `OPTIONS:`, then `GLOBAL OPTIONS:`.
+
+        NOTE: The root (or a standalone command) lists its global options in
+        full. A subcommand lists those it declares itself in full & the rest
+        on one line, pointing at the root's help.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        own: list[tuple[str, str]] = []
+        full: list[tuple[str, str]] = []
+        brief: list[click.Parameter] = []
+        for param in self.get_params(ctx):
+            record = param.get_help_record(ctx)
+            if record is None or isinstance(param, click.Argument):
+                continue
+            if not isinstance(param, GlobalOption):
+                own.append(record)
+            elif ctx.parent is None or param in self.params:
+                full.append(record)
+            else:
+                brief.append(param)
+        if own:
+            with formatter.section("Options"):
+                formatter.write_dl(own)
+        if full or brief:
+            with formatter.section("Global options"):
+                if full:
+                    formatter.write_dl(full)
+                if brief:
+                    names = ", ".join("/".join(p.opts) for p in brief)
+                    root = ctx.find_root().command_path
+                    formatter.write_text(f"{names} - see '{root} --help'.")
 
     def get_concise_help(self, ctx: click.Context) -> str:
         """Return the concise help, printed when a command needs arguments.

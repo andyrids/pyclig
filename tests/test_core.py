@@ -65,8 +65,9 @@ def test_full_help_layout(sample: Group) -> None:
         "EXAMPLES:",
         "COMMANDS:",
         "OPTIONS:",
+        "GLOBAL OPTIONS:",
     ]
-    assert lines.index("OPTIONS:") < lines.index(
+    assert lines.index("GLOBAL OPTIONS:") < lines.index(
         "  For more information see https://example.com/sample."
     )
 
@@ -75,7 +76,12 @@ def test_command_help_lists_examples_first(sample: Group) -> None:
     """Assert a command's `--help` lists its examples before the options."""
     result = invoke(sample, ["list", "--help"])
     assert result.exit_code == 0
-    assert _headings(result.stdout) == ["USAGE:", "EXAMPLES:", "OPTIONS:"]
+    assert _headings(result.stdout) == [
+        "USAGE:",
+        "EXAMPLES:",
+        "OPTIONS:",
+        "GLOBAL OPTIONS:",
+    ]
     lines = result.stdout.splitlines()
     start = lines.index("EXAMPLES:")
     assert lines[start + 1 : start + 3] == [
@@ -83,14 +89,98 @@ def test_command_help_lists_examples_first(sample: Group) -> None:
         "  sample list --json",
     ]
     assert lines.index("  Items are listed oldest first.") > lines.index(
-        "OPTIONS:"
+        "GLOBAL OPTIONS:"
     )
 
 
 def test_command_help_without_examples(sample: Group) -> None:
     """Assert a command without `examples=` has no `EXAMPLES:` section."""
     result = invoke(sample, ["download", "--help"])
-    assert _headings(result.stdout) == ["USAGE:", "OPTIONS:"]
+    assert _headings(result.stdout) == [
+        "USAGE:",
+        "OPTIONS:",
+        "GLOBAL OPTIONS:",
+    ]
+
+
+def _section(help_text: str, heading: str) -> list[str]:
+    """Return the lines of one section of a help text, up to the blank line."""
+    lines = help_text.splitlines()
+    start = lines.index(heading) + 1
+    end = lines.index("", start) if "" in lines[start:] else len(lines)
+    return lines[start:end]
+
+
+def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
+    """Assert the root's `GLOBAL OPTIONS:` lists run flags & its own."""
+    help_text = invoke(sample, ["--help"]).stdout
+    options = "\n".join(_section(help_text, "OPTIONS:"))
+    assert "--debug" not in options
+    assert "--audit" not in options
+    globals_ = _section(help_text, "GLOBAL OPTIONS:")
+    assert globals_[0].startswith("  --audit ")
+    assert globals_[1].startswith("  -d, --debug ")
+
+
+@pytest.mark.parametrize(
+    ("command", "line"),
+    [
+        ("list", "  --audit, -d/--debug - see 'sample --help'."),
+        ("copy", "  --audit, --debug - see 'sample --help'."),
+    ],
+)
+def test_global_options_one_line_on_subcommands(
+    sample: Group, command: str, line: str
+) -> None:
+    """Assert a subcommand's `GLOBAL OPTIONS:` is one line naming the flags."""
+    help_text = invoke(sample, [command, "--help"]).stdout
+    assert _section(help_text, "GLOBAL OPTIONS:") == [line]
+    assert "-d, --debug" not in help_text
+
+
+def test_app_flag_wins_over_a_run_flag(sample: Group) -> None:
+    """Assert a command's own `-d` reaches it while `--debug` still works."""
+    result = invoke(sample, ["copy", "-d", "/tmp"])
+    assert result.exit_code == 0
+    assert result.stdout == "dir=/tmp\n"
+    assert result.stderr == ""
+    result = invoke(sample, ["copy", "--debug", "-d", "/tmp"])
+    assert result.stdout == "dir=/tmp\n"
+    assert "copy debug record" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--audit", "audit"],
+        ["audit", "--audit"],
+        ["--audit", "grp", "leaf"],
+        ["grp", "leaf", "--audit"],
+    ],
+)
+def test_global_option_before_or_after_command(
+    sample: Group, args: list[str]
+) -> None:
+    """Assert an app's `GlobalOption` is accepted wherever it is placed."""
+    result = invoke(sample, args)
+    assert result.exit_code == 0
+    assert "audited" in result.stdout.splitlines()
+
+
+def test_global_option_reaches_added_command(sample: Group) -> None:
+    """Assert `add_command` gives a command the group's global options."""
+
+    @click.command(cls=pyclig.Command)
+    @click.pass_context
+    def added(ctx: click.Context) -> None:
+        """Print whether the run is audited."""
+        click.echo(ctx.meta.get("audit", False))
+
+    sample.add_command(added, "added")
+    try:
+        assert invoke(sample, ["added", "--audit"]).stdout == "True\n"
+    finally:
+        del sample.commands["added"]
 
 
 def test_click_command_with_pyclig_class_takes_examples() -> None:
@@ -276,12 +366,6 @@ def test_debug_after_invalid_option(sample: Group) -> None:
     assert "converting 'nope'" in result.stderr
 
 
-def test_debug_listed_in_command_help(sample: Group) -> None:
-    """Assert every command's help lists `-d, --debug`."""
-    for args in (["list"], ["grp", "leaf"]):
-        assert "-d, --debug" in invoke(sample, [*args, "--help"]).stdout
-
-
 def test_nested_group_is_pyclig_group(sample: Group) -> None:
     """Assert `@cli.group()` creates a `pyclig.Group` of `pyclig.Command`s."""
     nested = sample.commands["grp"]
@@ -438,6 +522,19 @@ def test_shell_completion(run_sample: RunSample) -> None:
     assert result.returncode == 0
     assert "plain,list" in result.stdout.splitlines()
     assert "plain,log" in result.stdout.splitlines()
+
+
+def test_global_options_offered_by_completion(run_sample: RunSample) -> None:
+    """Assert completion on a subcommand offers the global options."""
+    result = run_sample(
+        env={
+            "_SAMPLE_COMPLETE": "bash_complete",
+            "COMP_WORDS": "sample list --",
+            "COMP_CWORD": "2",
+        }
+    )
+    offered = set(result.stdout.splitlines())
+    assert {"plain,--json", "plain,--audit", "plain,--debug"} <= offered
 
 
 def test_program_name_under_python_m() -> None:

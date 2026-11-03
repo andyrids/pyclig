@@ -52,6 +52,9 @@ _ISSUE_LABELS = frozenset(
 PIPE_ERRNOS = frozenset({errno.EPIPE, errno.EINVAL})
 """A broken pipe's `OSError.errno`: EPIPE on POSIX, EINVAL on Windows."""
 
+STATE_KEY = "pyclig.state"
+"""The `ctx.meta` key holding the run's `State`."""
+
 
 @dataclass
 class State:
@@ -73,6 +76,19 @@ class State:
     errors: Errors = ()
     debug: bool = False
     in_tty: bool = False
+
+
+def state_of(ctx: click.Context) -> State | None:
+    """Return the run's state, if the run was started by `Command.main`.
+
+    Args:
+        ctx: Any context of the run.
+
+    Returns:
+        The state, or None outside a run.
+    """
+    state = ctx.meta.get(STATE_KEY)
+    return state if isinstance(state, State) else None
 
 
 class Interrupted(Exception):
