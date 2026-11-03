@@ -1,7 +1,7 @@
-"""Run a `pyclig.Group` in-process & capture each stream.
+"""Run a `pyclig.Command` or `Group` in-process & check it against CLIG.
 
 ```python
-from pyclig.testing import invoke
+from pyclig.testing import assert_conforms, invoke
 
 
 def test_list_plain_output_when_piped() -> None:
@@ -9,7 +9,16 @@ def test_list_plain_output_when_piped() -> None:
     result = invoke(cli, ["list"], err_tty=True)
     assert result.exit_code == 0
     assert "\\t" in result.stdout
+
+
+def test_cli_conforms() -> None:
+    \"\"\"Assert the CLI follows the guidelines pyclig can check.\"\"\"
+    assert_conforms(cli, ignore={"ARG-16": "`--token` also reads a file"})
 ```
+
+`check` returns the `Finding`s instead of asserting; `assert_conforms`
+lists them by rule ID (`docs/clig-coverage.md`), command & message. Neither
+runs a command body.
 
 License:
     SPDX-License-Identifier: Apache-2.0
@@ -21,7 +30,10 @@ from typing import IO, Any
 from click.testing import CliRunner, Result
 from rich.console import Console
 
-from pyclig._core import Group
+from pyclig._conformance import Finding, assert_conforms, check
+from pyclig._core import Command
+
+__all__: list[str] = ["Finding", "assert_conforms", "check", "invoke"]
 
 _CLEARED = (
     "COLUMNS",
@@ -34,7 +46,7 @@ _CLEARED = (
 
 
 def invoke(
-    cli: Group,
+    cli: Command,
     args: Sequence[str] = (),
     *,
     in_tty: bool = False,
@@ -53,12 +65,13 @@ def invoke(
     run ends.
 
     Args:
-        cli: The CLI.
+        cli: The CLI - a `pyclig.Group` or a standalone `pyclig.Command`.
         args: The command line arguments.
-        in_tty: Treat STDIN as a terminal, so `pyclig.confirm` prompts &
-            reads its answer from `input`.
+        in_tty: Treat STDIN as a terminal, so a prompt can be answered
+            from `input`.
         out_tty: Treat STDOUT as a terminal.
-        err_tty: Treat STDERR as a terminal.
+        err_tty: Treat STDERR as a terminal, so a prompt can be seen -
+            `pyclig.confirm` & `prompt=` options need `in_tty` & `err_tty`.
         color: Emit ANSI colour codes on both streams.
         interactive: Treat the terminal streams as interactive, so code
             gated on `console.is_interactive` (e.g. a spinner) runs - mock
@@ -99,4 +112,5 @@ def invoke(
         catch_exceptions=False,
         pyclig_consoles=consoles,
         pyclig_in_tty=in_tty,
+        pyclig_err_tty=err_tty,
     )

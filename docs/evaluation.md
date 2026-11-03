@@ -179,3 +179,80 @@ Notes:
 - `pyclig.confirm` outside a pyclig run raises the consoles `RuntimeError`, worded for consoles.
 - With `2>log`, the confirmation prompt goes to the log.
 - The Windows-console EOF case (Ctrl-Z + Enter) is unit-tested, not checked on a real console.
+
+## Round 3 - CLIG as a contract
+
+Date: 3 November 2026. `docs/plan-0.3.0.md` proposed eight gaps around a `GlobalOption`; a
+rule-by-rule audit of clig.dev widened it to the seven interfaces a later rule would otherwise
+have had to break. 0.3.0 locks those (`feat/clig-foundation`, 13 commits) and ships the
+conformance kit. The consumers were not changed: each was cloned into a scratch directory, run
+unmodified on the new pyclig, then with the transition diff of its draft issue.
+
+| Repository | Tests | Notes |
+| --- | --- | --- |
+| pyclig | 173 passed, 97% coverage | 3.11, 3.13 & 3.14; mypy clean, no `type: ignore` |
+| dkais (scratch) | 127 on 0.2.0; 7 fail unmodified; 130 with the diff | Exactly the predicted 7 |
+| pkgdx (scratch) | 237 on 0.2.0; 2 fail unmodified; 238 with the diff | Exactly the predicted 2 |
+
+### Verdict on the plan's findings
+
+| ID | Verdict | Evidence (`tests/test_core.py` unless named) |
+| --- | --- | --- |
+| F1 standalone commands | Confirmed, wider: no `-h` either | `test_standalone_command_short_help` |
+| F2 no `--plain` | Partly: `is_terminal` meant "colour wanted" | `test_plain_flag_on_a_terminal` |
+| F3 run-level flags | Confirmed | `test_global_option_before_or_after_command` |
+| F4 hints | Partly: pkgdx `GitNotFoundError` is a WARN row | `test_mapped_error_prints_hint_last` |
+| F5 `confirm` with `2>log` | Confirmed | `test_confirm_fails_without_terminal_stderr` |
+| F6 third-party warnings | Confirmed; no consumer hits it | Roadmap 0.6 |
+| F7 `-h` after a typo | Confirmed; snapshot the arguments | `test_help_wins_over_a_usage_error` |
+| F8 nested `errors=` | Confirmed | `test_nested_errors_rejected` |
+
+### Built in 0.3.0
+
+| Item | Evidence (test names) |
+| --- | --- |
+| `FORCE_COLOR` means colour only | `test_forced_colour_streams_stay_pipes` |
+| Runner, `errors=` & Ctrl-C translation on `Command` | `test_standalone_command_maps_errors` |
+| `pyclig.command()`; custom help names survive | `test_custom_help_names_reach_subcommands` |
+| Examples first; concise help for `no_args_is_help` | `test_command_help_lists_examples_first` |
+| `hint` & `exit_code` on `errors=` types | `test_mapped_error_exit_code` |
+| `GlobalOption`; an app's own spelling wins | `test_app_flag_wins_over_a_run_flag` |
+| `--no-color`, `-q`, `--no-input` | `test_quiet_drops_info_and_animation` |
+| Gated `prompt=` options, prompting on STDERR | `test_prompt_option_fails_instead_of_prompting` |
+| `ctx.format`, `options.plain()`, `--json` wins | `test_json_wins_over_plain` |
+| `pyclig.run` enters a `Context` | `test_run_enters_a_context` |
+| Conformance kit, 10 rules, no callback runs | `test_probes_never_run_a_callback` |
+
+Every test was shown failing before its change, apart from the kit's fixture tests, which could
+only fail by import until the module existed.
+
+### Integration
+
+- Real CLIs on the overlay: `dkais list --strt 1 -h` & `pkgdx init --bogus -h` show help, exit 0;
+  `FORCE_COLOR=1 dkais list --start 2026-10 | cut -f1` prints bare keys with a coloured STDERR
+  (one public bucket read); `download --all` off a terminal exits 2 before any transfer, checked
+  in-process with a stubbed bucket because the real command lists the bucket before the gate.
+- `pkgdx init` in two throwaway projects, git's network blocked so `prek update --check` fails
+  the same way on both: ledgers & `prek.toml` identical on 0.2.0 and the overlay. A hook shim with
+  no `ruff` on `PATH` prints `error:` then the hint, exit 1.
+- `assert_conforms`: no findings on dkais or pkgdx.
+- Start-up, median of 15 (0.2.0 → overlay): `dkais --help` 148 → 150 ms, `dkais -v` 144 → 152 ms,
+  `import dkais.__main__` 83 → 88 ms; `pkgdx --help` 150 → 153 ms. `import pyclig` loads
+  `_flags` and neither `_conformance` nor `click.testing`.
+
+### Departures from the notes
+
+- The `prompt=` gate wraps `prompt_for_value` once, at command creation, instead of copying the
+  option in `get_params`: identity stays stable across click's repeated `get_params` calls.
+- click prompts on STDOUT; the wrapper redirects STDOUT to STDERR for the prompt's duration, so
+  `prog login > file` cannot hide the question.
+- `summarise` in dkais takes `plain: bool` from `ctx.format == "plain"` rather than the format
+  itself, which keeps the format type out of its signature.
+- A `no_args_is_help` command keeps STDERR & exit 2; only the layout became concise.
+
+### Remaining after 0.3.0
+
+- `-d -q` prints debug records: `-q` drops `info` lines & animation only, by design.
+- A `GlobalOption` declared on a nested group is collapsed on its subcommands with a pointer to
+  the root, where it is not listed.
+- Run flags are not applied when parsing fails before them (`--no-color --bogus` may print red).
