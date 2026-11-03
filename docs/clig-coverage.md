@@ -117,6 +117,7 @@ library's reach.
 | ARG-3 | One-letter flags for common options only | gap | Unchecked | check |
 | ARG-4 | Several arguments for several files | partial (click) | `nargs=-1` | interface |
 | ARG-5 | Two or more differing arguments is a warning sign | gap | Unchecked (kit, 1.0) | check |
+| ARG-6 | Standard names where a standard exists | partial | Kit: `-f` not `--force` | check |
 | ARG-6a | Standard names: `-a`, `-f`, `-n`, `--json` | done | `pyclig.options`; kit | interface |
 | ARG-6b | Standard names: `-d`, `-h`, `--version` | done | Run flags; `-v` means version | auto |
 | ARG-6c | Standard names: `--no-input` | done | `_flags.NO_INPUT` | auto |

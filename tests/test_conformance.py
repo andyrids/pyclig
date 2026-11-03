@@ -1,11 +1,17 @@
 """Tests for `pyclig._conformance` - the CLIG conformance kit."""
 
+import inspect
+import re
+from pathlib import Path
+
 import click
 import pytest
 
 import pyclig
-from pyclig import Group
+from pyclig import Group, _conformance
 from pyclig.testing import Finding, assert_conforms, check
+
+COVERAGE = Path(__file__).parents[1] / "docs" / "clig-coverage.md"
 
 calls: list[str] = []
 """Every callback the fixture CLIs run - the kit must leave it empty."""
@@ -130,6 +136,18 @@ def open_(**kwargs: object) -> None:
 def _no_callbacks() -> None:
     """Reset the callback record before every test."""
     calls.clear()
+
+
+def test_kit_rule_ids_are_coverage_table_rows() -> None:
+    """Assert every rule ID the kit can emit is a row of the coverage table."""
+    if not COVERAGE.is_file():
+        pytest.skip("docs/clig-coverage.md is not part of this install")
+    text = COVERAGE.read_text(encoding="utf-8")
+    rows = set(re.findall(r"^\| ([A-Z]+-\d+[a-z]?) \|", text, re.MULTILINE))
+    source = inspect.getsource(_conformance)
+    emitted = set(re.findall(r'Finding\("([A-Z]+-\d+[a-z]?)"', source))
+    assert emitted
+    assert emitted <= rows, sorted(emitted - rows)
 
 
 def test_clean_cli_has_no_findings() -> None:
