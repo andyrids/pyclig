@@ -320,6 +320,41 @@ def test_help_wins_over_a_usage_error(
     assert result.stderr == ""
 
 
+@pyclig.group("hosted", examples=["hosted serve -h 0.0.0.0"])
+@click.option("-h", "--host", help="The root's own host.")
+def hosted(host: str | None) -> None:
+    """Group commands whose `-h` means host."""
+
+
+@hosted.command()
+@click.option("-h", "--host", help="The host to serve on.")
+def serve(host: str | None) -> None:
+    """Serve on `--host`."""
+    click.echo(f"host={host}")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["serve", "-h", "x", "--bogus"], ["nosuch", "-h"]],
+    ids=["command", "root"],
+)
+def test_app_help_spelling_is_not_help(args: list[str]) -> None:
+    """Assert a command's own `-h` never triggers help, even after an error."""
+    result = invoke(hosted, args)
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert "USAGE:\n" in result.stderr
+    assert result.stderr.startswith("error: No such ")
+
+
+def test_app_help_spelling_reaches_the_app() -> None:
+    """Assert `-h` reaches a command that declares it, `--help` still helps."""
+    assert invoke(hosted, ["serve", "-h", "x"]).stdout == "host=x\n"
+    result = invoke(hosted, ["serve", "--bogus", "--help"])
+    assert result.exit_code == 0
+    assert result.stdout.startswith("USAGE:\n  hosted serve [options]\n")
+
+
 def test_help_after_double_dash_still_errors(sample: Group) -> None:
     """Assert `-h` after `--` is an argument, so the usage error stands."""
     result = invoke(sample, ["list", "--strt", "1", "--", "-h"])

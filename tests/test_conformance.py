@@ -90,6 +90,19 @@ def sub() -> None:
     calls.append("sub")
 
 
+@pyclig.group("hosted", examples=["hosted serve"])
+def hosted() -> None:
+    """Group a command whose own `-h` means host."""
+    calls.append("hosted")
+
+
+@hosted.command()
+@click.option("-h", "--host", help="The host to serve on.")
+def serve(host: str | None) -> None:
+    """Serve on `--host`."""
+    calls.append("serve")
+
+
 @pytest.fixture(autouse=True)
 def _no_callbacks() -> None:
     """Reset the callback record before every test."""
@@ -114,6 +127,13 @@ def test_findings_by_rule_and_command() -> None:
         ("HELP-3", "adv download"),
         ("SUB-3", "adv plain"),
     }
+
+
+def test_own_help_spelling_is_not_probed() -> None:
+    """Assert a command taking `-h` gets ARG-6 only, not a false HELP-1."""
+    found = {(f.rule, f.command) for f in check(hosted)}
+    assert found == {("ARG-6", "hosted serve")}
+    assert calls == []
 
 
 def test_finding_messages_name_the_flag() -> None:

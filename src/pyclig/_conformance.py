@@ -193,7 +193,8 @@ def _probe(
     findings: list[Finding] = []
     runner = CliRunner()
     env = dict.fromkeys(_CLEARED)
-    for flag in help_names:
+    taken = {o for p in command.params for o in (*p.opts, *p.secondary_opts)}
+    for flag in (name for name in help_names if name not in taken):
         result = runner.invoke(
             command,
             [flag],

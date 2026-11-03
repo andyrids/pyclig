@@ -257,12 +257,18 @@ def _show_version(ctx: click.Context) -> str:
 def _help_if_asked(ctx: click.Context, args: Sequence[str]) -> None:
     """Show the help & exit 0 when a help flag appears before any `--`.
 
+    NOTE: A help name the command's own options take (`-h/--host`) is not
+    a help flag there, as click's `get_help_option_names` decides.
+
     Args:
         ctx: The context whose help to show.
         args: The arguments as given, before parsing consumed them.
     """
+    command = ctx.command
+    if ctx.resilient_parsing or not command.add_help_option:
+        return
     head = args[: args.index("--")] if "--" in args else args
-    if not ctx.resilient_parsing and set(ctx.help_option_names) & set(head):
+    if set(command.get_help_option_names(ctx)) & set(head):
         click.echo(ctx.get_help(), color=ctx.color)
         ctx.exit()
 
