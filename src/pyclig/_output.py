@@ -28,6 +28,32 @@ Level = Literal["error", "warning"]
 
 _LEVEL_STYLES: dict[Level, str] = {"error": "red", "warning": "yellow"}
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_QUIET = "_pyclig_quiet"
+
+
+def silence(console: Console) -> None:
+    """Mark `console` quiet: `info` lines are dropped & nothing animates.
+
+    NOTE: The mark lives on the console itself, so it holds in worker
+    threads & inside a `Progress`, where no click context is current.
+
+    Args:
+        console: The STDERR console of the run.
+    """
+    setattr(console, _QUIET, True)
+    console.is_interactive = False
+
+
+def is_quiet(console: Console) -> bool:
+    """Check whether `silence` marked `console` quiet.
+
+    Args:
+        console: A console.
+
+    Returns:
+        Whether `-q` applies to it.
+    """
+    return bool(getattr(console, _QUIET, False))
 
 
 def _text(message: str, style: str = "") -> Text:
@@ -78,11 +104,22 @@ def notice(console: Console, *, level: Level, message: str) -> None:
 
 
 def info(console: Console, *, message: str) -> None:
-    """Print a line of context, dim.
+    """Print a line of context, dim - dropped when the console is quiet.
 
     Args:
         console: The console to print to, usually STDERR.
         message: The message.
+    """
+    if not is_quiet(console):
+        hint(console, message=message)
+
+
+def hint(console: Console, *, message: str) -> None:
+    """Print a line the user acts on, dim - kept when the console is quiet.
+
+    Args:
+        console: The console to print to, usually STDERR.
+        message: The message, e.g. a remedy or a `--help` pointer.
     """
     console.print(
         _text(message, style="dim"), soft_wrap=not console.is_terminal

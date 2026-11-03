@@ -39,7 +39,7 @@ from rich.console import Console
 
 from pyclig import _logging
 from pyclig._exit import ExitCode
-from pyclig._output import _plain, info, notice, print_exception
+from pyclig._output import _plain, hint, notice, print_exception
 
 Errors = tuple[type[Exception], ...]
 """Expected exception types, reported as `error: message` & exit 1."""
@@ -66,6 +66,7 @@ class State:
         package: The application package - its logger & distribution.
         errors: Expected exception types.
         debug: Whether `-d/--debug` was given.
+        quiet: Whether `-q/--quiet` was given.
         in_tty: Whether STDIN is an interactive terminal, so a prompt can
             be answered.
     """
@@ -75,6 +76,7 @@ class State:
     package: str
     errors: Errors = ()
     debug: bool = False
+    quiet: bool = False
     in_tty: bool = False
 
 
@@ -315,9 +317,9 @@ def _report_usage_error(err: Console, error: click.UsageError) -> None:
     if ctx is None:
         return
     _plain(err, f"\n{ctx.get_usage()}\n")
-    hint = help_hint(ctx)
-    if hint:
-        info(err, message=hint)
+    pointer = help_hint(ctx)
+    if pointer:
+        hint(err, message=pointer)
 
 
 def help_hint(ctx: click.Context) -> str | None:
@@ -373,9 +375,9 @@ def _failed(error: Exception, state: State, prog: str) -> int:
             print_exception(state.err, error)
         message = str(error).strip() or type(error).__name__
         notice(state.err, level="error", message=message)
-        hint = getattr(error, "hint", None)
-        if hint:
-            info(state.err, message=str(hint))
+        remedy = getattr(error, "hint", None)
+        if remedy:
+            hint(state.err, message=str(remedy))
         code = getattr(error, "exit_code", None)
         return code if isinstance(code, int) else ExitCode.FAILURE
     print_exception(state.err, error)
@@ -386,9 +388,9 @@ def _failed(error: Exception, state: State, prog: str) -> int:
         level="error",
         message=f"{message}: {detail}" if detail else message,
     )
-    hint = bug_hint(prog, state.package)
-    if hint:
-        info(state.err, message=hint)
+    report = bug_hint(prog, state.package)
+    if report:
+        hint(state.err, message=report)
     return ExitCode.INTERNAL
 
 

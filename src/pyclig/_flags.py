@@ -3,6 +3,7 @@
 | Flag           | Effect                                               |
 | -------------- | ---------------------------------------------------- |
 | `-d, --debug`  | `DEBUG` logging as soon as it is parsed              |
+| `-q, --quiet`  | No `info` lines or animation; notices & hints stay   |
 | `--no-color`   | No colour on either console; bold & dim stay         |
 
 `RUN_FLAGS` are on every `pyclig.Command`; an application declares its own
@@ -19,7 +20,7 @@ from typing import Any
 
 import click
 
-from pyclig import _logging, _run
+from pyclig import _logging, _output, _run
 
 
 class GlobalOption(click.Option):
@@ -84,6 +85,14 @@ def _debug(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         _logging.configure(state.package, state.err, debug=True)
 
 
+def _quiet(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Drop `info` lines & animation; notices, hints & STDOUT stay."""
+    state = _run.state_of(ctx)
+    if value and state and not ctx.resilient_parsing:
+        state.quiet = True
+        _output.silence(state.err)
+
+
 def _no_color(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     """Drop colour from both consoles, keeping bold & dim, like `NO_COLOR`."""
     state = _run.state_of(ctx)
@@ -95,11 +104,16 @@ def _no_color(ctx: click.Context, param: click.Parameter, value: bool) -> None:
 DEBUG = GlobalOption(
     ["-d", "--debug"], callback=_debug, help="Show debug logging output."
 )
+QUIET = GlobalOption(
+    ["-q", "--quiet"],
+    callback=_quiet,
+    help="Hide informational messages & progress.",
+)
 NO_COLOR = GlobalOption(
     ["--no-color"], callback=_no_color, help="Print without colour."
 )
 
-RUN_FLAGS: tuple[GlobalOption, ...] = (DEBUG, NO_COLOR)
+RUN_FLAGS: tuple[GlobalOption, ...] = (DEBUG, QUIET, NO_COLOR)
 """The run flags every `pyclig.Command` accepts."""
 
 

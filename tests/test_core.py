@@ -125,8 +125,20 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
 @pytest.mark.parametrize(
     ("command", "line"),
     [
-        ("list", "  --audit, -d/--debug, --no-color - see 'sample --help'."),
-        ("copy", "  --audit, --debug, --no-color - see 'sample --help'."),
+        (
+            "list",
+            (
+                "  --audit, -d/--debug, -q/--quiet, --no-color - "
+                "see 'sample --help'."
+            ),
+        ),
+        (
+            "copy",
+            (
+                "  --audit, --debug, -q/--quiet, --no-color - "
+                "see 'sample --help'."
+            ),
+        ),
     ],
 )
 def test_global_options_one_line_on_subcommands(
@@ -382,6 +394,40 @@ def test_no_color_flag_drops_colour_keeps_bold(
     assert result.exit_code == pyclig.ExitCode.FAILURE
     assert "\x1b[1;31m" not in result.stderr
     assert result.stderr.startswith("\x1b[1merror:\x1b[0m")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["-q", "chatter"], ["chatter", "--quiet"]],
+    ids=["before", "after"],
+)
+def test_quiet_drops_info_and_animation(
+    sample: Group, args: list[str]
+) -> None:
+    """Assert `-q` drops `info` from any thread & animation, nothing else."""
+    result = invoke(sample, args, err_tty=True, interactive=True)
+    assert result.exit_code == 0
+    assert result.stdout == "quiet=True\n"
+    assert result.stderr == "warning: kept warning\nlive=False\n"
+
+
+def test_not_quiet_by_default(sample: Group) -> None:
+    """Assert `info` & live displays stay without `-q`."""
+    result = invoke(sample, ["chatter"], err_tty=True, interactive=True)
+    assert result.stdout == "quiet=False\n"
+    assert result.stderr == (
+        "main info\nworker info\nwarning: kept warning\nlive=True\n"
+    )
+
+
+def test_quiet_keeps_hints(sample: Group) -> None:
+    """Assert `-q` keeps the `--help` hint of a usage error & error hints."""
+    result = invoke(sample, ["-q", "list", "--bogus"])
+    assert result.stderr.endswith(
+        "Try 'sample list --help' for more information.\n"
+    )
+    result = invoke(sample, ["-q", "fail", "--kind", "hinted"])
+    assert result.stderr == "error: disk full\nFree some space, then re-run.\n"
 
 
 def test_nested_group_is_pyclig_group(sample: Group) -> None:

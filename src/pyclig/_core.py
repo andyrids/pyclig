@@ -96,6 +96,11 @@ class Context(click.Context):
         """The STDERR console, for messages, logs & live displays."""
         return _require_state(self).err
 
+    @property
+    def quiet(self) -> bool:
+        """Whether `-q/--quiet` was given: print only what the user needs."""
+        return _require_state(self).quiet
+
 
 def _require_state(ctx: click.Context) -> _run.State:
     """Return the run's state, or raise when there is none."""

@@ -8,6 +8,7 @@ License:
 
 import errno
 import logging
+import threading
 import time
 
 import click
@@ -231,6 +232,21 @@ def copy(ctx: pyclig.Context, dir: str | None) -> None:  # noqa: A002
 def audit(ctx: pyclig.Context) -> None:
     """Print whether `--audit` was given anywhere."""
     ctx.out.print("audited" if ctx.meta.get("audit") else "unaudited")
+
+
+@cli.command()
+@pyclig.pass_context
+def chatter(ctx: pyclig.Context) -> None:
+    """Print info from the main & a worker thread, a warning & STDOUT."""
+    pyclig.info(ctx.err, message="main info")
+    worker = threading.Thread(
+        target=pyclig.info, args=(ctx.err,), kwargs={"message": "worker info"}
+    )
+    worker.start()
+    worker.join()
+    logger.warning("kept warning")
+    ctx.err.print(Text(f"live={ctx.err.is_interactive}"))
+    ctx.out.print(f"quiet={ctx.quiet}")
 
 
 @cli.command()
