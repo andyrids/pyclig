@@ -311,8 +311,8 @@ class Command(click.Command):
 
         Args:
             name: The command name.
-            examples: Example invocations, listed under `EXAMPLES:` after
-                the options & before the epilog.
+            examples: Example invocations, listed under `EXAMPLES:` before
+                the options.
             errors: Expected exception types, reported without a traceback.
                 Only the root command's are read.
             **kwargs: Keyword `click.Command` arguments;
