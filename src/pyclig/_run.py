@@ -67,8 +67,10 @@ class State:
         errors: Expected exception types.
         debug: Whether `-d/--debug` was given.
         quiet: Whether `-q/--quiet` was given.
-        in_tty: Whether STDIN is an interactive terminal, so a prompt can
-            be answered.
+        no_input: Whether `--no-input` was given.
+        in_tty: Whether STDIN is a terminal, so a prompt can be answered.
+        err_tty: Whether STDERR is a terminal, so a prompt can be seen -
+            the real `isatty`, which `FORCE_COLOR` does not change.
     """
 
     out: Console
@@ -77,7 +79,14 @@ class State:
     errors: Errors = ()
     debug: bool = False
     quiet: bool = False
+    no_input: bool = False
     in_tty: bool = False
+    err_tty: bool = False
+
+    @property
+    def can_prompt(self) -> bool:
+        """Whether a prompt can be seen & answered, and was not refused."""
+        return self.in_tty and self.err_tty and not self.no_input
 
 
 def state_of(ctx: click.Context) -> State | None:

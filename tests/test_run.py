@@ -19,7 +19,7 @@ USAGE_ERRORS = [
         "error: Invalid value for '--start': invalid year `nope` - use YYYY",
         "sample list",
     ),
-    (["list", "--nope"], "error: No such option '--nope'.", "sample list"),
+    (["list", "--bogus"], "error: No such option '--bogus'.", "sample list"),
     (
         ["list", "--start"],
         "error: Option '--start' requires an argument.",
@@ -293,7 +293,7 @@ def test_forced_colour_means_colour_only(run_sample: RunSample) -> None:
 def test_forced_colour_streams_stay_pipes(run_sample: RunSample) -> None:
     """Assert `FORCE_COLOR` leaves a piped console non-terminal & static."""
     result = run_sample("streams", env={"FORCE_COLOR": "1"})
-    assert result.stderr == "out=False err=False live=False\n"
+    assert result.stderr == "out=False err=False live=False prompt=False\n"
 
 
 def test_no_color_removes_colour(run_sample: RunSample) -> None:

@@ -128,14 +128,14 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
         (
             "list",
             (
-                "  --audit, -d/--debug, -q/--quiet, --no-color - "
+                "  --audit, -d/--debug, -q/--quiet, --no-color, --no-input - "
                 "see 'sample --help'."
             ),
         ),
         (
             "copy",
             (
-                "  --audit, --debug, -q/--quiet, --no-color - "
+                "  --audit, --debug, -q/--quiet, --no-color, --no-input - "
                 "see 'sample --help'."
             ),
         ),
@@ -463,7 +463,11 @@ def test_pass_context_requires_pyclig_command() -> None:
 
 CONFIRM_PROMPT = "Delete every sample item? [y/N]: "
 CONFIRM_ERROR = (
-    "error: confirmation needed, but STDIN is not a terminal - "
+    "error: confirmation needed, but there is no terminal to ask on - "
+    "pass `--force` to proceed"
+)
+NO_INPUT_ERROR = (
+    "error: confirmation needed, but `--no-input` was given - "
     "pass `--force` to proceed"
 )
 
@@ -481,7 +485,7 @@ def test_confirm_fails_without_terminal_stdin(
     sample: Group, answer: str | None
 ) -> None:
     """Assert a piped STDIN is a usage error naming `--force`, not a prompt."""
-    result = invoke(sample, ["purge"], input=answer)
+    result = invoke(sample, ["purge"], err_tty=True, width=120, input=answer)
     assert result.exit_code == pyclig.ExitCode.USAGE
     assert result.stdout == ""
     assert result.stderr.splitlines() == [
@@ -492,6 +496,86 @@ def test_confirm_fails_without_terminal_stdin(
         "",
         "Try 'sample purge --help' for more information.",
     ]
+    assert "STDIN is not a terminal" not in result.stderr
+
+
+def test_confirm_fails_without_terminal_stderr(sample: Group) -> None:
+    """Assert a redirected STDERR (`2>log`) fails rather than hide the ask."""
+    result = invoke(sample, ["purge"], in_tty=True, input="y\n")
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert result.stderr.startswith(f"{CONFIRM_ERROR}\n")
+
+
+@pytest.mark.parametrize(
+    "args", [["--no-input", "purge"], ["purge", "--no-input"]]
+)
+def test_confirm_fails_with_no_input(sample: Group, args: list[str]) -> None:
+    """Assert `--no-input` fails naming itself & `--force`, even on a TTY."""
+    result = invoke(
+        sample, args, in_tty=True, err_tty=True, width=120, input="y\n"
+    )
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert result.stderr.startswith(f"{NO_INPUT_ERROR}\n")
+
+
+def test_prompt_option_asks_on_a_terminal(sample: Group) -> None:
+    """Assert a `prompt=` option prompts when both terminals are there."""
+    result = invoke(
+        sample, ["login"], in_tty=True, err_tty=True, input="abc\n"
+    )
+    assert result.exit_code == 0
+    assert result.stdout == "token=abc\n"
+    assert result.stderr == "Token: abc\n"
+
+
+PROMPT_ERROR = (
+    "error: '--token' needs a value, but {reason} - "
+    "pass it on the command line"
+)
+
+
+@pytest.mark.parametrize(
+    ("args", "ttys", "reason"),
+    [
+        (["login"], False, "there is no terminal to ask on"),
+        (["login", "--no-input"], True, "`--no-input` was given"),
+        (["--no-input", "login"], True, "`--no-input` was given"),
+    ],
+    ids=["piped", "flag-after", "flag-before"],
+)
+def test_prompt_option_fails_instead_of_prompting(
+    sample: Group, args: list[str], ttys: bool, reason: str
+) -> None:
+    """Assert a `prompt=` option fails naming itself when it cannot prompt."""
+    result = invoke(
+        sample, args, in_tty=ttys, err_tty=ttys, width=120, input="abc\n"
+    )
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert result.stderr.startswith(PROMPT_ERROR.format(reason=reason) + "\n")
+    assert "Token:" not in result.stderr
+
+
+def test_prompt_option_given_needs_no_prompt(sample: Group) -> None:
+    """Assert a `prompt=` option given on the command line never prompts."""
+    result = invoke(sample, ["login", "--token", "x", "--no-input"])
+    assert result.exit_code == 0
+    assert result.stdout == "token=x\n"
+    assert result.stderr == ""
+
+
+def test_can_prompt_needs_both_terminals_and_no_flag(sample: Group) -> None:
+    """Assert `ctx.can_prompt` is True only with STDIN & STDERR terminals."""
+    result = invoke(sample, ["streams"], in_tty=True, err_tty=True)
+    assert result.stderr.endswith(" prompt=True\n")
+    result = invoke(
+        sample, ["--no-input", "streams"], in_tty=True, err_tty=True
+    )
+    assert result.stderr.endswith(" prompt=False\n")
+    result = invoke(sample, ["streams"], in_tty=True)
+    assert result.stderr.endswith(" prompt=False\n")
 
 
 def test_confirm_detects_piped_stdin() -> None:
@@ -511,7 +595,7 @@ def test_confirm_detects_piped_stdin() -> None:
 
 def test_confirm_accepted_on_terminal(sample: Group) -> None:
     """Assert `y` at the STDERR prompt proceeds."""
-    result = invoke(sample, ["purge"], in_tty=True, input="y\n")
+    result = invoke(sample, ["purge"], in_tty=True, err_tty=True, input="y\n")
     assert result.exit_code == 0
     assert result.stdout == "purged\n"
     assert result.stderr == f"{CONFIRM_PROMPT}y\n"
@@ -522,7 +606,7 @@ def test_confirm_accepted_on_terminal(sample: Group) -> None:
 )
 def test_confirm_declined_on_terminal(sample: Group, answer: str) -> None:
     """Assert `n`, an empty answer or EOF aborts, exit 1."""
-    result = invoke(sample, ["purge"], in_tty=True, input=answer)
+    result = invoke(sample, ["purge"], in_tty=True, err_tty=True, input=answer)
     assert result.exit_code == pyclig.ExitCode.FAILURE
     assert result.stdout == ""
     assert result.stderr.startswith(CONFIRM_PROMPT)
@@ -530,36 +614,34 @@ def test_confirm_declined_on_terminal(sample: Group, answer: str) -> None:
 
 
 @pytest.mark.parametrize(
-    ("platform", "err_tty", "answer", "stderr"),
+    ("platform", "answer", "stderr"),
     [
-        ("linux", True, "", f"{CONFIRM_PROMPT}\nerror: aborted\n"),
+        ("linux", "", f"{CONFIRM_PROMPT}\nerror: aborted\n"),
         # The console echoes the Enter of Ctrl-Z + Enter, not CliRunner
-        ("win32", True, "", f"{CONFIRM_PROMPT}error: aborted\n"),
-        ("linux", True, "n\n", f"{CONFIRM_PROMPT}n\nerror: aborted\n"),
-        ("linux", False, "", f"{CONFIRM_PROMPT}error: aborted\n"),
+        ("win32", "", f"{CONFIRM_PROMPT}error: aborted\n"),
+        ("linux", "n\n", f"{CONFIRM_PROMPT}n\nerror: aborted\n"),
     ],
-    ids=["eof-terminal", "eof-windows-console", "no-terminal", "eof-piped"],
+    ids=["eof-terminal", "eof-windows-console", "no-terminal"],
 )
 def test_confirm_aborted_after_the_prompt_line(
     sample: Group,
     monkeypatch: pytest.MonkeyPatch,
     platform: str,
-    err_tty: bool,
     answer: str,
     stderr: str,
 ) -> None:
     """Assert EOF ends a terminal's prompt line before `error: aborted`."""
     monkeypatch.setattr(sys, "platform", platform)
-    result = invoke(
-        sample, ["purge"], in_tty=True, err_tty=err_tty, input=answer
-    )
+    result = invoke(sample, ["purge"], in_tty=True, err_tty=True, input=answer)
     assert result.exit_code == pyclig.ExitCode.FAILURE
     assert result.stderr == stderr
 
 
 def test_confirm_interrupted_on_terminal(sample: Group) -> None:
     """Assert Ctrl-C at the prompt is an interrupt, exit 130."""
-    result = invoke(sample, ["purge"], in_tty=True, input=InterruptingInput())
+    result = invoke(
+        sample, ["purge"], in_tty=True, err_tty=True, input=InterruptingInput()
+    )
     assert result.exit_code == pyclig.ExitCode.INTERRUPT
     assert result.stdout == ""
     assert result.stderr.endswith("warning: interrupted\n")

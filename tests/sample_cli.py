@@ -235,6 +235,13 @@ def audit(ctx: pyclig.Context) -> None:
 
 
 @cli.command()
+@click.option("--token", prompt="Token", help="The access token.")
+def login(token: str) -> None:
+    """Print `--token`, prompting for it when it is not given."""
+    click.echo(f"token={token}")
+
+
+@cli.command()
 @pyclig.pass_context
 def chatter(ctx: pyclig.Context) -> None:
     """Print info from the main & a worker thread, a warning & STDOUT."""
@@ -257,7 +264,8 @@ def streams(ctx: pyclig.Context) -> None:
     ctx.out.print("two")
     click.echo("three")
     tty = f"out={ctx.out.is_terminal} err={ctx.err.is_terminal}"
-    ctx.err.print(Text(f"{tty} live={ctx.err.is_interactive}"))
+    live = f"live={ctx.err.is_interactive} prompt={ctx.can_prompt}"
+    ctx.err.print(Text(f"{tty} {live}"))
 
 
 @cli.group()

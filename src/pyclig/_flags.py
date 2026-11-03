@@ -5,6 +5,7 @@
 | `-d, --debug`  | `DEBUG` logging as soon as it is parsed              |
 | `-q, --quiet`  | No `info` lines or animation; notices & hints stay   |
 | `--no-color`   | No colour on either console; bold & dim stay         |
+| `--no-input`   | `confirm` & `prompt=` options fail instead of asking  |
 
 `RUN_FLAGS` are on every `pyclig.Command`; an application declares its own
 with `click.option(..., cls=pyclig.GlobalOption)` on the command whose
@@ -93,6 +94,13 @@ def _quiet(ctx: click.Context, param: click.Parameter, value: bool) -> None:
         _output.silence(state.err)
 
 
+def _no_input(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Refuse every prompt: `confirm` & `prompt=` options fail instead."""
+    state = _run.state_of(ctx)
+    if value and state and not ctx.resilient_parsing:
+        state.no_input = True
+
+
 def _no_color(ctx: click.Context, param: click.Parameter, value: bool) -> None:
     """Drop colour from both consoles, keeping bold & dim, like `NO_COLOR`."""
     state = _run.state_of(ctx)
@@ -112,8 +120,13 @@ QUIET = GlobalOption(
 NO_COLOR = GlobalOption(
     ["--no-color"], callback=_no_color, help="Print without colour."
 )
+NO_INPUT = GlobalOption(
+    ["--no-input"],
+    callback=_no_input,
+    help="Never prompt; fail where an answer would be needed.",
+)
 
-RUN_FLAGS: tuple[GlobalOption, ...] = (DEBUG, QUIET, NO_COLOR)
+RUN_FLAGS: tuple[GlobalOption, ...] = (DEBUG, QUIET, NO_COLOR, NO_INPUT)
 """The run flags every `pyclig.Command` accepts."""
 
 

@@ -13,6 +13,7 @@ License:
     SPDX-License-Identifier: Apache-2.0
 """
 
+import contextlib
 import functools
 import sys
 from collections.abc import Callable, Iterable, Sequence
@@ -101,6 +102,15 @@ class Context(click.Context):
         """Whether `-q/--quiet` was given: print only what the user needs."""
         return _require_state(self).quiet
 
+    @property
+    def can_prompt(self) -> bool:
+        """Whether STDIN & STDERR are terminals and `--no-input` was not given.
+
+        NOTE: `pyclig.confirm` & click `prompt=` options check this
+        themselves; read it before an interactive flow of your own.
+        """
+        return _require_state(self).can_prompt
+
 
 def _require_state(ctx: click.Context) -> _run.State:
     """Return the run's state, or raise when there is none."""
@@ -144,20 +154,20 @@ def pass_context(f: Callable[Concatenate[Context, P], R]) -> Callable[P, R]:
 def confirm(ctx: click.Context, *, message: str, force: bool) -> None:
     """Ask the user to confirm a large or destructive action.
 
-    | Case                      | Outcome                                    |
-    | ------------------------- | ------------------------------------------ |
-    | `force`                   | Returns, without a prompt                  |
-    | STDIN is not a terminal   | `error:` naming `--force`, usage - exit 2  |
-    | `y` / `yes`               | Returns                                    |
-    | `n`, empty answer, EOF    | `error: aborted` - exit 1                  |
-    | Ctrl-C                    | `warning: interrupted` - exit 130          |
+    | Case                          | Outcome                                |
+    | ----------------------------- | -------------------------------------- |
+    | `force`                       | Returns, without a prompt              |
+    | STDIN or STDERR not a terminal| `error:` naming `--force`, usage - 2   |
+    | `--no-input`                  | `error:` naming both flags, usage - 2  |
+    | `y` / `yes`                   | Returns                                |
+    | `n`, empty answer, EOF        | `error: aborted` - exit 1              |
+    | Ctrl-C                        | `warning: interrupted` - exit 130      |
 
-    NOTE: Without a terminal on STDIN nobody can answer, so the run fails
-    with a usage error that names the flag a script should pass. Call it
-    before starting any live display (`Progress`, `Status`): click writes
-    the prompt straight to STDERR, so `2>log` puts it in the log. Under
-    `CliRunner` (`pyclig.testing.invoke`) click also echoes the typed
-    answer to STDERR.
+    NOTE: Without a terminal on STDIN nobody can answer, and without one on
+    STDERR (`2>log`) nobody sees the question, so the run fails with a
+    usage error naming the flag a script should pass. Call it before
+    starting any live display (`Progress`, `Status`). Under `CliRunner`
+    (`pyclig.testing.invoke`) click also echoes the typed answer to STDERR.
 
     ```python
     @cli.command()
@@ -174,18 +184,59 @@ def confirm(ctx: click.Context, *, message: str, force: bool) -> None:
         force: Skip the prompt, e.g. for `-f/--force`.
 
     Raises:
-        click.UsageError: When STDIN is not a terminal.
+        click.UsageError: When the run cannot prompt.
         click.Abort: When the prompt is declined or interrupted.
     """
     if force:
         return
-    if not _require_state(ctx).in_tty:
+    state = _require_state(ctx)
+    if not state.can_prompt:
         raise click.UsageError(
-            "confirmation needed, but STDIN is not a terminal - "
+            f"confirmation needed, but {_cannot_prompt(state)} - "
             "pass `--force` to proceed",
             ctx=ctx,
         )
     click.confirm(message, default=False, abort=True, err=True)
+
+
+def _cannot_prompt(state: _run.State) -> str:
+    """Return why the run cannot prompt, for a usage error."""
+    if state.no_input:
+        return "`--no-input` was given"
+    return "there is no terminal to ask on"
+
+
+def _prompt(
+    option: click.Option,
+    prompt: Callable[[click.Context], Any],
+    ctx: click.Context,
+) -> Any:
+    """Prompt for `option` on STDERR, or fail when the run cannot prompt.
+
+    NOTE: click prompts on STDOUT, where a `prog > file` would hide the
+    question; the prompt is a message, so STDOUT is redirected to STDERR
+    for its duration.
+
+    Args:
+        option: The option with `prompt=`.
+        prompt: click's `prompt_for_value`, bound to `option`.
+        ctx: The command's context.
+
+    Returns:
+        The answer, processed by the option's type.
+
+    Raises:
+        click.UsageError: When the run cannot prompt.
+    """
+    state = _run.state_of(ctx)
+    if state is not None and not state.can_prompt:
+        raise click.UsageError(
+            f"{option.get_error_hint(ctx)} needs a value, but "
+            f"{_cannot_prompt(state)} - pass it on the command line",
+            ctx=ctx,
+        )
+    with contextlib.redirect_stdout(sys.stderr):
+        return prompt(ctx)
 
 
 def _show_version(ctx: click.Context) -> str:
@@ -209,12 +260,14 @@ def _help_if_asked(ctx: click.Context, args: Sequence[str]) -> None:
 class Command(click.Command):
     """A click command with the run flags, the pyclig help layout & runner.
 
-    NOTE: The run flags (`-d/--debug` & any `GlobalOption` of an ancestor)
-    are added by `get_params`, so parsing, help & completion all see them;
-    a command's own option with the same spelling wins. Usage errors raised
-    while parsing are bound to this command, so they show its usage. `main`
-    runs the command with fresh consoles & logging; `errors` is read from
-    the command `main` is called on.
+    NOTE: The run flags (`-d`, `-q`, `--no-color`, `--no-input` & any
+    `GlobalOption` of an ancestor) are added by `get_params`, so parsing,
+    help & completion all see them; a command's own option with the same
+    spelling wins. An option with `prompt=` prompts on STDERR, and fails
+    naming itself when the run cannot prompt. Usage errors raised while
+    parsing are bound to this command, so they show its usage. `main` runs
+    the command with fresh consoles & logging; `errors` is read from the
+    command `main` is called on.
 
     Attributes:
         examples: Example invocations, listed under `EXAMPLES:`.
@@ -246,6 +299,12 @@ class Command(click.Command):
         super().__init__(name, **kwargs)
         self.examples = tuple(examples)
         self.errors = errors
+        for param in self.params:
+            if isinstance(param, click.Option) and param.prompt is not None:
+                gated = functools.partial(
+                    _prompt, param, param.prompt_for_value
+                )
+                setattr(param, "prompt_for_value", gated)
 
     def get_params(self, ctx: click.Context) -> list[click.Parameter]:
         """Return the own parameters, the global options, then help.
@@ -415,6 +474,7 @@ class Command(click.Command):
         """
         make_consoles = extra.pop("pyclig_consoles", _run.make_consoles)
         in_tty = extra.pop("pyclig_in_tty", None)
+        err_tty = extra.pop("pyclig_err_tty", None)
         _run.configure_streams()
         out, err = make_consoles()
         prog = prog_name or self.name or "main"
@@ -425,6 +485,7 @@ class Command(click.Command):
             package,
             self.errors,
             in_tty=_run.is_tty(sys.stdin) if in_tty is None else in_tty,
+            err_tty=_run.is_tty(sys.stderr) if err_tty is None else err_tty,
         )
         click_main = super().main
         with _logging.scoped(package):

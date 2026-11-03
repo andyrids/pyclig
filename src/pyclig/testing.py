@@ -55,10 +55,11 @@ def invoke(
     Args:
         cli: The CLI - a `pyclig.Group` or a standalone `pyclig.Command`.
         args: The command line arguments.
-        in_tty: Treat STDIN as a terminal, so `pyclig.confirm` prompts &
-            reads its answer from `input`.
+        in_tty: Treat STDIN as a terminal, so a prompt can be answered
+            from `input`.
         out_tty: Treat STDOUT as a terminal.
-        err_tty: Treat STDERR as a terminal.
+        err_tty: Treat STDERR as a terminal, so a prompt can be seen -
+            `pyclig.confirm` & `prompt=` options need `in_tty` & `err_tty`.
         color: Emit ANSI colour codes on both streams.
         interactive: Treat the terminal streams as interactive, so code
             gated on `console.is_interactive` (e.g. a spinner) runs - mock
@@ -99,4 +100,5 @@ def invoke(
         catch_exceptions=False,
         pyclig_consoles=consoles,
         pyclig_in_tty=in_tty,
+        pyclig_err_tty=err_tty,
     )
