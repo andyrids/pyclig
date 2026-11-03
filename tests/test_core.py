@@ -55,34 +55,36 @@ def _headings(help_text: str) -> list[str]:
 
 
 def test_full_help_layout(sample: Group) -> None:
-    """Assert `--help` lists usage, options, commands, examples & epilog."""
+    """Assert `--help` lists usage, examples, commands, options & epilog."""
     result = invoke(sample, ["--help"])
     assert result.exit_code == 0
     lines = result.stdout.splitlines()
     assert lines[:2] == ["USAGE:", "  sample [options] <command>"]
     assert _headings(result.stdout) == [
         "USAGE:",
-        "OPTIONS:",
-        "COMMANDS:",
         "EXAMPLES:",
+        "COMMANDS:",
+        "OPTIONS:",
     ]
-    assert lines.index("EXAMPLES:") < lines.index(
+    assert lines.index("OPTIONS:") < lines.index(
         "  For more information see https://example.com/sample."
     )
 
 
-def test_command_help_lists_examples_before_epilog(sample: Group) -> None:
-    """Assert a command's `--help` lists its examples after the options."""
+def test_command_help_lists_examples_first(sample: Group) -> None:
+    """Assert a command's `--help` lists its examples before the options."""
     result = invoke(sample, ["list", "--help"])
     assert result.exit_code == 0
-    assert _headings(result.stdout) == ["USAGE:", "OPTIONS:", "EXAMPLES:"]
+    assert _headings(result.stdout) == ["USAGE:", "EXAMPLES:", "OPTIONS:"]
     lines = result.stdout.splitlines()
     start = lines.index("EXAMPLES:")
     assert lines[start + 1 : start + 3] == [
         "  sample list --start 2026",
         "  sample list --json",
     ]
-    assert lines.index("  Items are listed oldest first.") > start + 2
+    assert lines.index("  Items are listed oldest first.") > lines.index(
+        "OPTIONS:"
+    )
 
 
 def test_command_help_without_examples(sample: Group) -> None:

@@ -82,12 +82,20 @@ def test_missing_required_option_names_env_var(sample: Group) -> None:
     )
 
 
-def test_no_args_is_help_prints_help_to_stderr(sample: Group) -> None:
-    """Assert a `no_args_is_help` command prints its help to STDERR, exit 2."""
+def test_no_args_is_help_prints_concise_help_to_stderr(sample: Group) -> None:
+    """Assert a `no_args_is_help` command prints concise help to STDERR, 2."""
     result = invoke(sample, ["process"])
     assert result.exit_code == pyclig.ExitCode.USAGE
     assert result.stdout == ""
-    assert result.stderr.startswith("USAGE:\n  sample process [options]")
+    lines = result.stderr.splitlines()
+    assert lines[:4] == [
+        "USAGE:",
+        "  sample process [options]",
+        "",
+        "  Process sample items.",
+    ]
+    assert lines[-1] == "Try 'sample process --help' for more information."
+    assert "OPTIONS:" not in lines
     assert "error:" not in result.stderr
 
 

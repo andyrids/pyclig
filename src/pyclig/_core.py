@@ -5,8 +5,8 @@ A `pyclig.command()` or `pyclig.group()` gets, on top of click:
 - per-run Rich consoles (`ctx.out`, `ctx.err`), created when the run starts
 - `-d/--debug` on every command, accepted before or after the command name
 - `-v/--version`, read from the distribution metadata only when asked
-- `-h` as well as `--help`, `USAGE:` & upper-case headings, an `EXAMPLES:`
-  section & concise help on a bare group invocation
+- `-h` as well as `--help`, `USAGE:` & upper-case headings, examples first
+  & concise help when a group runs bare or a command lacks its arguments
 - the runner, which maps every outcome to an exit code (see `pyclig._run`)
 
 License:
@@ -22,6 +22,7 @@ import click
 from rich.console import Console
 
 from pyclig import _logging, _run
+from pyclig._exit import ExitCode
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -278,6 +279,9 @@ class Command(click.Command):
         Returns:
             The arguments left over for a subcommand.
         """
+        if not args and self.no_args_is_help and not ctx.resilient_parsing:
+            click.echo(self.get_concise_help(ctx), err=True)
+            ctx.exit(ExitCode.USAGE)
         given = list(args)
         try:
             return super().parse_args(ctx, args)
@@ -286,6 +290,25 @@ class Command(click.Command):
                 error.ctx = ctx
             _help_if_asked(ctx, given)
             raise
+
+    def format_help(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the help: usage, description, examples, options & epilog.
+
+        NOTE: Examples lead, as the CLI guidelines ask; a group's options
+        section lists its commands first (see `Group.format_options`).
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        self.format_usage(ctx, formatter)
+        self.format_help_text(ctx, formatter)
+        self.format_examples(ctx, formatter)
+        self.format_arguments(ctx, formatter)
+        self.format_options(ctx, formatter)
+        self.format_epilog(ctx, formatter)
 
     def format_examples(
         self, ctx: click.Context, formatter: click.HelpFormatter
@@ -302,17 +325,35 @@ class Command(click.Command):
             for example in self.examples:
                 formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
 
-    def format_epilog(
+    def get_concise_help(self, ctx: click.Context) -> str:
+        """Return the concise help, printed when a command needs arguments.
+
+        Args:
+            ctx: The command's context.
+
+        Returns:
+            The help without its options, ending with a `--help` hint.
+        """
+        formatter = ctx.make_formatter()
+        self.format_concise_help(ctx, formatter)
+        hint = _run.help_hint(ctx)
+        if hint:
+            formatter.write_paragraph()
+            formatter.write_text(hint)
+        return formatter.getvalue().rstrip("\n")
+
+    def format_concise_help(
         self, ctx: click.Context, formatter: click.HelpFormatter
     ) -> None:
-        """Write the `EXAMPLES:` section, then the epilog.
+        """Write the concise help: usage, description & examples.
 
         Args:
             ctx: The command's context.
             formatter: The help formatter.
         """
+        self.format_usage(ctx, formatter)
+        self.format_help_text(ctx, formatter)
         self.format_examples(ctx, formatter)
-        super().format_epilog(ctx, formatter)
 
     def main(
         self,
@@ -485,6 +526,40 @@ class Group(Command, click.Group):
             click.echo(self.get_concise_help(ctx))
         return result
 
+    def format_options(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the `COMMANDS:` section, then the options as a `Command`.
+
+        NOTE: Explicit, because `pyclig.Command` precedes `click.Group` in
+        the method resolution order.
+
+        Args:
+            ctx: The group's context.
+            formatter: The help formatter.
+        """
+        self.format_commands(ctx, formatter)
+        Command.format_options(self, ctx, formatter)
+
+    def format_concise_help(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the concise help printed for a bare invocation.
+
+        Args:
+            ctx: The group's context.
+            formatter: The help formatter.
+        """
+        header = _show_version(ctx)
+        formatter.write_text(
+            f"{self.short_help} [{header}]" if self.short_help else header
+        )
+        self.format_help_text(ctx, formatter)
+        formatter.write_paragraph()
+        self.format_usage(ctx, formatter)
+        self.format_commands(ctx, formatter)
+        self.format_examples(ctx, formatter)
+
     def resolve_command(
         self, ctx: click.Context, args: list[str]
     ) -> tuple[str | None, click.Command | None, list[str]]:
@@ -502,32 +577,6 @@ class Group(Command, click.Group):
         except click.UsageError:
             _help_if_asked(ctx, args)
             raise
-
-    def get_concise_help(self, ctx: click.Context) -> str:
-        """Return the concise help printed for a bare invocation.
-
-        Args:
-            ctx: The group's context.
-
-        Returns:
-            The summary & version, description, usage, commands, examples
-            & a `--help` hint.
-        """
-        formatter = ctx.make_formatter()
-        header = _show_version(ctx)
-        formatter.write_text(
-            f"{self.short_help} [{header}]" if self.short_help else header
-        )
-        self.format_help_text(ctx, formatter)
-        formatter.write_paragraph()
-        self.format_usage(ctx, formatter)
-        self.format_commands(ctx, formatter)
-        self.format_examples(ctx, formatter)
-        hint = _run.help_hint(ctx)
-        if hint:
-            formatter.write_paragraph()
-            formatter.write_text(hint)
-        return formatter.getvalue().rstrip("\n")
 
 
 def command(
