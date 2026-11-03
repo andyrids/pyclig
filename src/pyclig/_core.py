@@ -1,12 +1,12 @@
-"""click classes applying the CLIG conventions to a command group.
+"""click classes applying the CLIG conventions to a command or group.
 
-A `pyclig.group()` gets, on top of click:
+A `pyclig.command()` or `pyclig.group()` gets, on top of click:
 
 - per-run Rich consoles (`ctx.out`, `ctx.err`), created when the run starts
 - `-d/--debug` on every command, accepted before or after the command name
 - `-v/--version`, read from the distribution metadata only when asked
-- `USAGE:` & upper-case headings, an `EXAMPLES:` section & concise help on
-  a bare invocation
+- `-h` as well as `--help`, `USAGE:` & upper-case headings, an `EXAMPLES:`
+  section & concise help on a bare group invocation
 - the runner, which maps every outcome to an exit code (see `pyclig._run`)
 
 License:
@@ -59,7 +59,9 @@ class Context(click.Context):
     """A click context with the run's STDOUT & STDERR consoles.
 
     NOTE: The consoles live in `ctx.meta`, which every context of a run
-    shares, so `ctx.obj` stays free for the application.
+    shares, so `ctx.obj` stays free for the application. A root context
+    takes `-h` & `--help` as its help option names unless given others;
+    subcontexts inherit their parent's, as in click.
     """
 
     formatter_class = HelpFormatter
@@ -77,6 +79,9 @@ class Context(click.Context):
             pyclig_state: The run's state, given to the root context.
             **kwargs: Keyword `click.Context` arguments.
         """
+        parent = args[1] if len(args) > 1 else kwargs.get("parent")
+        if parent is None and kwargs.get("help_option_names") is None:
+            kwargs["help_option_names"] = ["-h", "--help"]
         super().__init__(*args, **kwargs)
         if pyclig_state is not None:
             self.meta[_STATE] = pyclig_state
@@ -93,7 +98,7 @@ class Context(click.Context):
 
 
 def _state(ctx: click.Context) -> _run.State | None:
-    """Return the run's state, if the run was started by `Group.main`."""
+    """Return the run's state, if the run was started by `Command.main`."""
     state = ctx.meta.get(_STATE)
     return state if isinstance(state, _run.State) else None
 
@@ -102,7 +107,10 @@ def _require_state(ctx: click.Context) -> _run.State:
     """Return the run's state, or raise when there is none."""
     state = _state(ctx)
     if state is None:
-        raise RuntimeError("the consoles exist only within a pyclig.Group run")
+        raise RuntimeError(
+            "the consoles exist only within a run started by a pyclig "
+            "command's main() - or by pyclig.testing.invoke"
+        )
     return state
 
 
@@ -126,8 +134,8 @@ def pass_context(f: Callable[Concatenate[Context, P], R]) -> Callable[P, R]:
         ctx = click.get_current_context()
         if not isinstance(ctx, Context):
             raise TypeError(
-                f"{f.__name__} must be a command of a pyclig.Group, "
-                "not of a plain click.Group"
+                f"{f.__name__} must be a pyclig.Command, "
+                "not a plain click command"
             )
         return f(ctx, *args, **kwargs)
 
@@ -195,14 +203,16 @@ def _show_version(ctx: click.Context) -> str:
 
 
 class Command(click.Command):
-    """A click command with `-d/--debug` & the pyclig help layout.
+    """A click command with `-d/--debug`, the pyclig help layout & runner.
 
     NOTE: `-d` is eager, so it takes effect even when a later option is
     invalid. Usage errors raised while parsing are bound to this command, so
-    they show its usage.
+    they show its usage. `main` runs the command with fresh consoles &
+    logging; `errors` is read from the command `main` is called on.
 
     Attributes:
         examples: Example invocations, listed under `EXAMPLES:`.
+        errors: Expected exception types, reported without a traceback.
     """
 
     context_class = Context
@@ -212,6 +222,7 @@ class Command(click.Command):
         name: str | None = None,
         *,
         examples: Iterable[str] = (),
+        errors: _run.Errors = (),
         **kwargs: Any,
     ) -> None:
         """Create the command.
@@ -220,12 +231,15 @@ class Command(click.Command):
             name: The command name.
             examples: Example invocations, listed under `EXAMPLES:` after
                 the options & before the epilog.
+            errors: Expected exception types, reported without a traceback.
+                Only the root command's are read.
             **kwargs: Keyword `click.Command` arguments;
                 `options_metavar` defaults to `[options]`.
         """
         kwargs.setdefault("options_metavar", "[options]")
         super().__init__(name, **kwargs)
         self.examples = tuple(examples)
+        self.errors = errors
         self.params.append(
             click.Option(
                 ["-d", "--debug"],
@@ -281,72 +295,6 @@ class Command(click.Command):
         self.format_examples(ctx, formatter)
         super().format_epilog(ctx, formatter)
 
-
-class Group(Command, click.Group):
-    """A click group running the CLIG conventions (see module docstring).
-
-    NOTE: Subcommands default to `pyclig.Command` & nested groups to
-    `pyclig.Group`, so `@cli.command()` & `@cli.group()` inherit `-d`.
-
-    Attributes:
-        errors: Expected exception types, reported without a traceback.
-    """
-
-    command_class = Command
-    group_class = type
-
-    def __init__(
-        self,
-        name: str | None = None,
-        commands: Any = None,
-        *,
-        examples: Iterable[str] = (),
-        errors: _run.Errors = (),
-        invoke_without_command: bool = True,
-        subcommand_metavar: str | None = "<command>",
-        context_settings: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> None:
-        """Create the group.
-
-        Args:
-            name: The group name.
-            commands: The initial subcommands, by name or as a sequence.
-            examples: Example invocations, listed under `EXAMPLES:`.
-            errors: Expected exception types, reported without a traceback.
-            invoke_without_command: Run without a subcommand, printing the
-                concise help.
-            subcommand_metavar: The command placeholder in the usage line.
-            context_settings: Defaults for the context; `-h` & `--help`
-                show help unless `help_option_names` is given.
-            **kwargs: Keyword `click.Group` arguments.
-        """
-        settings = {"help_option_names": ["-h", "--help"]}
-        super().__init__(
-            name,
-            commands=commands,
-            examples=examples,
-            invoke_without_command=invoke_without_command,
-            subcommand_metavar=subcommand_metavar,
-            context_settings=settings | (context_settings or {}),
-            **kwargs,
-        )
-        self.errors = errors
-
-    def list_commands(self, ctx: click.Context) -> list[str]:
-        """List the subcommands in the order they were added.
-
-        NOTE: click sorts them by name; the order a CLI defines them in is
-        usually its workflow, e.g. `list`, `download`, `process`.
-
-        Args:
-            ctx: The group's context.
-
-        Returns:
-            The subcommand names.
-        """
-        return list(self.commands)
-
     def main(
         self,
         args: Sequence[str] | None = None,
@@ -365,7 +313,7 @@ class Group(Command, click.Group):
 
         Args:
             args: The arguments, defaulting to `sys.argv[1:]`.
-            prog_name: The program name, defaulting to the group name.
+            prog_name: The program name, defaulting to the command name.
             complete_var: The shell completion environment variable.
             standalone_mode: Ignored.
             windows_expand_args: Expand globs & variables on Windows.
@@ -403,23 +351,25 @@ class Group(Command, click.Group):
         sys.exit(code)
 
     def invoke(self, ctx: click.Context) -> Any:
-        """Invoke the group, printing concise help when no command is given.
+        """Invoke the command, carrying Ctrl-C, EOF & pipe errors past click.
 
-        NOTE: Ctrl-C, `EOFError` & broken pipes are carried past click,
-        which would print a blank line, report "Aborted!" or exit silently.
+        NOTE: click would print a blank line, report "Aborted!" or exit
+        silently. A group's `super().invoke` is `click.Group.invoke`, so one
+        translation covers groups & commands, and an error translated by a
+        subcommand passes the outer levels untouched.
 
         Args:
-            ctx: The group's context.
+            ctx: The command's context.
 
         Returns:
-            The subcommand's return value.
+            The command's return value.
 
         Raises:
             Interrupted: On Ctrl-C.
             Escaped: Carrying an `EOFError` or a pipe `OSError`.
         """
         try:
-            result = super().invoke(ctx)
+            return super().invoke(ctx)
         except KeyboardInterrupt as error:
             raise _run.Interrupted from error
         except EOFError as error:
@@ -428,6 +378,90 @@ class Group(Command, click.Group):
             if error.errno in _run.PIPE_ERRNOS:
                 raise _run.Escaped(error) from error
             raise
+
+
+class Group(Command, click.Group):
+    """A click group running the CLIG conventions (see module docstring).
+
+    NOTE: Subcommands default to `pyclig.Command` & nested groups to
+    `pyclig.Group`, so `@cli.command()` & `@cli.group()` inherit `-d`.
+    """
+
+    command_class = Command
+    group_class = type
+
+    def __init__(
+        self,
+        name: str | None = None,
+        commands: Any = None,
+        *,
+        invoke_without_command: bool = True,
+        subcommand_metavar: str | None = "<command>",
+        **kwargs: Any,
+    ) -> None:
+        """Create the group.
+
+        Args:
+            name: The group name.
+            commands: The initial subcommands, by name or as a sequence.
+            invoke_without_command: Run without a subcommand, printing the
+                concise help.
+            subcommand_metavar: The command placeholder in the usage line.
+            **kwargs: Keyword `Command` & `click.Group` arguments, e.g.
+                `examples`, `errors` & `context_settings`.
+        """
+        super().__init__(
+            name,
+            commands=commands,
+            invoke_without_command=invoke_without_command,
+            subcommand_metavar=subcommand_metavar,
+            **kwargs,
+        )
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        """List the subcommands in the order they were added.
+
+        NOTE: click sorts them by name; the order a CLI defines them in is
+        usually its workflow, e.g. `list`, `download`, `process`.
+
+        Args:
+            ctx: The group's context.
+
+        Returns:
+            The subcommand names.
+        """
+        return list(self.commands)
+
+    def add_command(self, cmd: click.Command, name: str | None = None) -> None:
+        """Add a subcommand, rejecting one that sets `errors=`.
+
+        NOTE: The runner reads `errors` from the root only, so a subcommand's
+        would be ignored silently.
+
+        Args:
+            cmd: The subcommand.
+            name: Its name, defaulting to `cmd.name`.
+
+        Raises:
+            TypeError: When `cmd` sets `errors=`.
+        """
+        if isinstance(cmd, Command) and cmd.errors:
+            raise TypeError(
+                f"{name or cmd.name} sets errors=, which only the root "
+                "command may do"
+            )
+        super().add_command(cmd, name)
+
+    def invoke(self, ctx: click.Context) -> Any:
+        """Invoke the group, printing concise help when no command is given.
+
+        Args:
+            ctx: The group's context.
+
+        Returns:
+            The subcommand's return value.
+        """
+        result = super().invoke(ctx)
         if ctx.invoked_subcommand is None:
             click.echo(self.get_concise_help(ctx))
         return result
@@ -457,6 +491,44 @@ class Group(Command, click.Group):
             formatter.write_paragraph()
             formatter.write_text(hint)
         return formatter.getvalue().rstrip("\n")
+
+
+def command(
+    name: str | None = None,
+    *,
+    examples: Iterable[str] = (),
+    errors: _run.Errors = (),
+    **kwargs: Any,
+) -> Callable[[Callable[..., Any]], Command]:
+    """Create a standalone `pyclig.Command` with `-v/--version`.
+
+    NOTE: For a CLI with several commands use `pyclig.group`; a command of
+    a group gets everything a standalone command does.
+
+    Args:
+        name: The program name, e.g. `tool`.
+        examples: Example invocations, listed under `EXAMPLES:`.
+        errors: Expected exception types, reported as `error: message` &
+            exit 1 - the traceback is shown only with `-d`.
+        **kwargs: Keyword `click.Command` arguments, e.g. `epilog`.
+
+    Returns:
+        A decorator turning the function into a `Command`.
+    """
+
+    def decorator(f: Callable[..., Any]) -> Command:
+        return click.command(
+            name, cls=Command, examples=examples, errors=errors, **kwargs
+        )(_versioned(f))
+
+    return decorator
+
+
+def _versioned(f: Callable[..., Any]) -> Callable[..., Any]:
+    """Add `-v/--version` to a command function."""
+    return click.custom_version_option(
+        _show_version, "-v", "--version", help="Show the version and exit."
+    )(f)
 
 
 def group(
@@ -492,14 +564,8 @@ def group(
     """
 
     def decorator(f: Callable[..., Any]) -> Group:
-        f = click.custom_version_option(
-            _show_version,
-            "-v",
-            "--version",
-            help="Show the version and exit.",
-        )(f)
         return click.group(
             name, cls=Group, examples=examples, errors=errors, **kwargs
-        )(f)
+        )(_versioned(f))
 
     return decorator

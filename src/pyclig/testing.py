@@ -1,4 +1,4 @@
-"""Run a `pyclig.Group` in-process & capture each stream.
+"""Run a `pyclig.Command` or `Group` in-process & capture each stream.
 
 ```python
 from pyclig.testing import invoke
@@ -21,7 +21,7 @@ from typing import IO, Any
 from click.testing import CliRunner, Result
 from rich.console import Console
 
-from pyclig._core import Group
+from pyclig._core import Command
 
 _CLEARED = (
     "COLUMNS",
@@ -34,7 +34,7 @@ _CLEARED = (
 
 
 def invoke(
-    cli: Group,
+    cli: Command,
     args: Sequence[str] = (),
     *,
     in_tty: bool = False,
@@ -53,7 +53,7 @@ def invoke(
     run ends.
 
     Args:
-        cli: The CLI.
+        cli: The CLI - a `pyclig.Group` or a standalone `pyclig.Command`.
         args: The command line arguments.
         in_tty: Treat STDIN as a terminal, so `pyclig.confirm` prompts &
             reads its answer from `input`.

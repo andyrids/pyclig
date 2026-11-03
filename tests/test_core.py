@@ -1,5 +1,6 @@
 """Tests for `pyclig._core` - help, `-d`, `-v` & the group runner."""
 
+import logging
 import re
 import subprocess
 import sys
@@ -15,6 +16,12 @@ from pyclig.testing import invoke
 from tests.conftest import SAMPLE, InterruptingInput, RunSample, sample_env
 
 DEBUG_TIME = re.compile(r"\[\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4}\]")
+
+logger = logging.getLogger(__name__)
+
+
+class ToolError(Exception):
+    """An expected failure of the standalone tool."""
 
 
 def test_bare_invocation_prints_concise_help(sample: Group) -> None:
@@ -94,6 +101,82 @@ def test_click_command_with_pyclig_class_takes_examples() -> None:
     result = CliRunner().invoke(tool, ["--help"])
     assert result.exit_code == 0
     assert "EXAMPLES:\n  tool --debug\n" in result.stdout
+
+
+@pyclig.command("tool", examples=["tool --debug"], errors=(ToolError,))
+@click.option("--fail", is_flag=True, help="Raise the expected error.")
+@pyclig.pass_context
+def tool(ctx: pyclig.Context, fail: bool) -> None:
+    """Run the standalone tool."""
+    logger.debug("tool debug record")
+    if fail:
+        raise ToolError("tool failed")
+    ctx.out.print("ran")
+
+
+def test_standalone_command_has_consoles() -> None:
+    """Assert a `pyclig.command()` run gives `ctx.out` without a group."""
+    result = invoke(tool)
+    assert result.exit_code == 0
+    assert result.stdout == "ran\n"
+
+
+def test_standalone_command_debug_logs() -> None:
+    """Assert `-d` enables debug logging on a standalone command."""
+    result = invoke(tool, ["-d"])
+    assert result.exit_code == 0
+    assert "tool debug record" in result.stderr
+    assert DEBUG_TIME.search(result.stderr)
+
+
+def test_standalone_command_maps_errors() -> None:
+    """Assert a standalone command's `errors=` print `error:`, exit 1."""
+    result = invoke(tool, ["--fail"])
+    assert result.exit_code == pyclig.ExitCode.FAILURE
+    assert result.stderr == "error: tool failed\n"
+
+
+def test_standalone_command_short_help() -> None:
+    """Assert `-h` shows a standalone command's help with its examples."""
+    result = invoke(tool, ["-h"])
+    assert result.exit_code == 0
+    assert result.stdout.startswith("USAGE:\n  tool [options]\n")
+    assert "EXAMPLES:\n  tool --debug\n" in result.stdout
+
+
+def test_command_decorator_adds_version() -> None:
+    """Assert `pyclig.command()` adds `-v/--version`."""
+    assert invoke(tool, ["-v"]).stdout == "tool 0.0.0+unknown\n"
+
+
+def test_custom_help_names_reach_subcommands() -> None:
+    """Assert a group's own `help_option_names` replace `-h` below it."""
+
+    @pyclig.group("aided", context_settings={"help_option_names": ["--aide"]})
+    def aided() -> None:
+        """Group commands with a custom help flag."""
+
+    @aided.command()
+    def sub() -> None:
+        """Do nothing."""
+
+    result = invoke(aided, ["sub", "--aide"])
+    assert result.exit_code == 0
+    assert result.stdout.startswith("USAGE:\n  aided sub [options]\n")
+    assert invoke(aided, ["sub", "-h"]).exit_code == pyclig.ExitCode.USAGE
+
+
+def test_nested_errors_rejected(sample: Group) -> None:
+    """Assert `errors=` on a subcommand or nested group is a `TypeError`."""
+    with pytest.raises(TypeError, match="errors="):
+
+        @sample.group(errors=(ToolError,))
+        def nested() -> None:
+            """Group commands with its own errors."""
+
+    with pytest.raises(TypeError, match="errors="):
+        sample.add_command(tool, "tool")
+    assert "tool" not in sample.commands
 
 
 def test_commands_listed_in_definition_order(sample: Group) -> None:
@@ -192,8 +275,10 @@ def test_pass_context_requires_pyclig_command() -> None:
     def cmd(ctx: pyclig.Context) -> None:
         """Expect a pyclig context."""
 
-    with pytest.raises(TypeError, match="must be a command of a pyclig.Group"):
+    with pytest.raises(TypeError, match="not a plain click command") as info:
         CliRunner().invoke(plain, ["cmd"], catch_exceptions=False)
+    assert "pyclig.Command" in str(info.value)
+    assert "pyclig.Group" not in str(info.value)
 
 
 CONFIRM_PROMPT = "Delete every sample item? [y/N]: "
@@ -302,10 +387,11 @@ def test_confirm_interrupted_on_terminal(sample: Group) -> None:
 
 
 def test_consoles_require_a_run(sample: Group) -> None:
-    """Assert `ctx.out` outside a `Group.main` run raises."""
+    """Assert `ctx.out` outside a run started by `main()` raises."""
     ctx = pyclig.Context(sample)
-    with pytest.raises(RuntimeError, match="only within a pyclig.Group run"):
+    with pytest.raises(RuntimeError, match="started by .*main") as info:
         _ = ctx.out
+    assert "pyclig.Group run" not in str(info.value)
 
 
 def test_shell_completion(run_sample: RunSample) -> None:
