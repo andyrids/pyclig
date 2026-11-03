@@ -28,7 +28,7 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn, TextIO
+from typing import Any, NoReturn, TextIO
 
 import click
 from rich.console import Console
@@ -128,14 +128,27 @@ def _console(*, stderr: bool) -> Console:
     (`file=None`), so a test runner's captured streams are honoured. Rich
     falls back to its legacy Windows renderer, which drops colour, whenever
     the stream is not a console; a pipe is written with ANSI codes instead.
+    `FORCE_COLOR` means colour only: on a pipe the console keeps the colour
+    system Rich would force, but stays a non-terminal, so output is neither
+    wrapped nor animated. `TTY_COMPATIBLE=1` still makes a pipe a terminal.
     """
     piped = not is_tty(sys.stderr if stderr else sys.stdout)
+    legacy_windows = False if sys.platform == "win32" and piped else None
+    settings: dict[str, Any] = {}
+    forced = os.environ.get("FORCE_COLOR")
+    if piped and forced and os.environ.get("TTY_COMPATIBLE") not in {"0", "1"}:
+        probe = Console(force_terminal=True, legacy_windows=legacy_windows)
+        settings = {
+            "force_terminal": False,
+            "color_system": probe.color_system,
+        }
     return Console(
         stderr=stderr,
         markup=False,
         emoji=False,
         highlight=False,
-        legacy_windows=False if sys.platform == "win32" and piped else None,
+        legacy_windows=legacy_windows,
+        **settings,
     )
 
 

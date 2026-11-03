@@ -1,10 +1,12 @@
 """Message primitives for a CLI's STDOUT & STDERR consoles.
 
-Each function renders for the stream behind its `Console`: styled on a
-terminal, otherwise one unstyled line per message that never wraps, for logs
-& `grep`. Text is printed as `rich.text.Text` and never parsed as markup or
-emoji codes, so user input (`[/b]`, `:warning:`, Windows paths) prints as
-written. Control characters, including terminal escapes, are dropped.
+Each function renders for the stream behind its `Console`: wrapped on a
+terminal, otherwise one line per message that never wraps, for logs & `grep`.
+Styles are always applied; the console drops them unless colour is wanted
+(a terminal, or `FORCE_COLOR` on a pipe). Text is printed as `rich.text.Text`
+and never parsed as markup or emoji codes, so user input (`[/b]`,
+`:warning:`, Windows paths) prints as written. Control characters, including
+terminal escapes, are dropped.
 
 NOTE: The console is always passed in, never a global, so a live display
 (`Progress`, `Status`) on the same console redraws cleanly around these
@@ -61,31 +63,30 @@ def hanging(console: Console, *, head: Text | str, message: str) -> None:
 
 
 def notice(console: Console, *, level: Level, message: str) -> None:
-    """Print a `level: message` line, its prefix bold & coloured on a terminal.
+    """Print a `level: message` line, its prefix bold & coloured.
 
     Args:
         console: The console to print to, usually STDERR.
         level: `error` (red) or `warning` (yellow).
         message: The message.
     """
-    if not console.is_terminal:
-        _plain(console, f"{level}: {message}")
-        return
     head = Text(f"{level}:", style=f"bold {_LEVEL_STYLES[level]}")
-    hanging(console, head=head, message=message)
+    if console.is_terminal:
+        hanging(console, head=head, message=message)
+    else:
+        console.print(Text.assemble(head, " ", _text(message)), soft_wrap=True)
 
 
 def info(console: Console, *, message: str) -> None:
-    """Print a line of context, dim on a terminal.
+    """Print a line of context, dim.
 
     Args:
         console: The console to print to, usually STDERR.
         message: The message.
     """
-    if console.is_terminal:
-        console.print(_text(message, style="dim"))
-    else:
-        _plain(console, message)
+    console.print(
+        _text(message, style="dim"), soft_wrap=not console.is_terminal
+    )
 
 
 def print_exception(console: Console, error: BaseException) -> None:

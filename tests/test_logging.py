@@ -91,12 +91,14 @@ def test_debug_rich_on_a_terminal(sample: Group) -> None:
     assert not any(PLAIN_RECORD.fullmatch(line) for line in lines)
 
 
-def test_debug_rich_when_colour_forced(run_sample: RunSample) -> None:
-    """Assert `FORCE_COLOR` keeps the styled Rich `-d` layout on a pipe."""
+def test_debug_plain_when_colour_forced(run_sample: RunSample) -> None:
+    """Assert `FORCE_COLOR` keeps the plain one-line `-d` records on a pipe."""
     result = run_sample("-d", "log", env={"FORCE_COLOR": "1"})
     assert result.returncode == 0
-    assert "debug record" in result.stderr
-    assert "\x1b[" in result.stderr
+    lines = result.stderr.splitlines()
+    assert len(lines) == 4
+    assert all(PLAIN_RECORD.fullmatch(line) for line in lines)
+    assert "\x1b[" not in result.stderr
 
 
 def test_one_handler_during_a_run(sample: Group) -> None:

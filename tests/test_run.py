@@ -247,6 +247,23 @@ def test_piped_output_styled_when_forced(
     assert "\x1b[1;31merror:" in result.stderr
 
 
+def test_forced_colour_means_colour_only(run_sample: RunSample) -> None:
+    """Assert `FORCE_COLOR` colours piped notices without terminal layout."""
+    message = " ".join(["word"] * 30)
+    result = run_sample("show", "--value", message, env={"FORCE_COLOR": "1"})
+    assert result.returncode == 0
+    assert result.stderr.splitlines() == [
+        f"\x1b[1;33mwarning:\x1b[0m {message}",
+        f"\x1b[1;31merror:\x1b[0m {message}",
+    ]
+
+
+def test_forced_colour_streams_stay_pipes(run_sample: RunSample) -> None:
+    """Assert `FORCE_COLOR` leaves a piped console non-terminal & static."""
+    result = run_sample("streams", env={"FORCE_COLOR": "1"})
+    assert result.stderr == "out=False err=False live=False\n"
+
+
 def test_no_color_removes_colour(run_sample: RunSample) -> None:
     """Assert `NO_COLOR` drops colour, even when styling is forced."""
     result = run_sample(
