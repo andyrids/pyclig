@@ -71,6 +71,7 @@ Commands take `examples=` too: their `--help` leads with them under `EXAMPLES:`.
 | `prog cmd` needing arguments | Concise help on STDERR, exit 2 (`no_args_is_help=True`) |
 | `-v`, `--version` | `prog version` from the metadata, else `0.0.0+unknown`; an app's `-v` wins |
 | Run flags | `-d`, `-q`, `--no-color` & `--no-input`, before or after the command name |
+| `help`, `help cmd...` | A group's or the named command's help, exit 0; unlisted, an app's wins |
 | Subcommands | `@cli.command()` & `@cli.group()` create `pyclig.Command` & `pyclig.Group` |
 | Arguments | Reach commands as typed - globs & variables are not expanded on Windows either |
 | Streams | UTF-8 STDOUT & STDERR, so `✓` or `→` never fail on a cp1252 pipe |
@@ -148,8 +149,7 @@ subcommand, where the runner would ignore it.
 ## Output
 
 `ctx.out` (STDOUT) & `ctx.err` (STDERR) are Rich consoles created for each run, with markup,
-emoji codes & highlighting off. Pass `ctx.err` to any `Progress` or `Status`, and gate animation
-on `ctx.err.is_interactive`. Each console tells the truth about its own stream: `is_terminal` is
+emoji codes & highlighting off. Each console tells the truth about its own stream: `is_terminal` is
 the real TTY check, so `FORCE_COLOR` means colour only - a piped console keeps its colour but
 stays one line per message, never wraps and never animates. `NO_COLOR`, `TERM=dumb` &
 `--no-color` drop colour; `TTY_COMPATIBLE=1` makes a pipe a terminal.
@@ -158,17 +158,43 @@ stays one line per message, never wraps and never animates. `NO_COLOR`, `TERM=du
 otherwise `plain`; the per-command flags `--plain` (`pyclig.options.plain()`) & `--json`
 (`pyclig.options.json_output()`) override it, `--json` winning in any order. Only commands that
 produce records take the flags, so help never advertises a flag a command ignores.
+`ctx.emit(records, table=..., caption=...)` prints the records in that format:
+
+| Format | STDOUT | Caption |
+| --- | --- | --- |
+| `json` | An indented list; values JSON cannot encode print as `str()` | Dropped |
+| `plain` | Tab-separated rows, no header, columns from the first record's keys | `info(ctx.err)` |
+| `human` | `table()`, or a default table with a column per key | Below the table |
+
+A plain cell never breaks its row: `None` is empty, bools are `true`/`false`, tabs & newlines
+become one space. Without records JSON prints `[]` and the others only the caption. `table` is a
+factory, so cells can depend on other fields and `rich.table` stays off the fast paths.
+
+`with ctx.pager():` pages what the block prints on `ctx.out`, in `human` format only - `plain` &
+`json` are for pipes. It goes through `click.echo_via_pager`, so `PAGER` is honoured and `less`
+gets `LESS=-FIRX` when `LESS` is unset. On Windows paging is opt-in: with `PAGER` blank the output
+prints directly, because click's fallback there is `more`, which garbles UTF-8 and cannot scroll;
+`PAGER=less` (Git for Windows ships one) pages in colour. Output is held until the block ends, and
+`click.echo` inside it bypasses the page.
+
+Messages & feedback take the console first, then keyword-only arguments:
 
 | Primitive | On a terminal | Otherwise |
 | --- | --- | --- |
-| `notice(console, level=..., message=...)` | Bold red / yellow `level:`, wrapped | One line |
-| `info(console, message=...)` | Dim; dropped with `-q` | Plain; dropped with `-q` |
-| `hanging(console, head="✓", message=...)` | Wrapped under the message | Same |
+| `notice(level=, message=, items=())` | Bold `level:`, wrapped; items indented | One line each |
+| `info(message=)` | Dim; dropped with `-q` | Plain; dropped with `-q` |
+| `hint(message=)` | Dim; kept with `-q` | Plain; kept with `-q` |
+| `hanging(head="✓", message=)` | Wrapped under the message | Same |
+| `row(mark=, label=, detail=, width=)` | `mark  label  detail`, never wrapped | Same |
+| `summary(message=, failed=)` | `✓ message`, or `! message` when failed; wrapped | One line |
+| `status(message=)` | A spinner around the block | No-op |
+| `progress(columns=, **kwargs)` | A transient Rich `Progress` | Disabled |
 
-Arguments after the console are keyword-only. Control characters, including terminal escapes,
-are dropped from messages. Print machine-readable output - JSON, tab-separated rows - with
-`click.echo`, which neither wraps nor expands tabs. Use `rich.text.Text` with a `style` for styled
-output, and `TextColumn(markup=False)` in a Rich `Progress`.
+`-q` drops `info`, `row` (unless `essential=True`), `summary` (unless `failed=True`) & animation;
+`notice` & `hint` stay. `status` & `progress` animate only on an interactive console, and task
+descriptions are never markup. A grouped failure is one `notice(items=...)` then a `hint` with the
+remedy. Control characters, including terminal escapes, are dropped from messages, and a `str` is
+never parsed as markup; a `rich.text.Text` with a `style` prints styled, as given.
 
 ## Standard flags
 

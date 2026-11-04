@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ctx.emit(records, table=..., caption=...)`: JSON, tab-separated rows or a table by `ctx.format`
+- `pyclig.row` & `pyclig.summary`: state rows & a closing line; `-q` drops them unless essential
+  or failed
+- `pyclig.status` & `pyclig.progress`: a spinner & a Rich `Progress` that animate only on an
+  interactive console
+- `pyclig.hint`: the next-step line, kept with `-q`
+- `notice(items=...)`: grouped failures under one header, printed in one call
+- `help` & `help <command>...` on every group, unlisted; an app's own `help` command wins
+- `with ctx.pager():` pages `human` output through click's pager with `LESS=-FIRX`; opt-in
+  through `PAGER` on Windows, where `more` cannot show it
+
+### Fixed
+
+- Messages drop C1 control codes, so an 8-bit CSI (`\x9b`) cannot restyle the terminal
+
 ## [0.3.0] - 2026-11-03
 
 ### Added

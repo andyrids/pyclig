@@ -135,7 +135,7 @@ is not resilient and `self.get_command(ctx, "help") is None`:
 Never in `.commands`, so the kit's walk & `COMMANDS:` are unchanged. Groups only: a standalone
 `pyclig.command()` has no subcommands to name. Document that a required root option errors first.
 
-### Item 6 - pager (OUT-19 `done`; first item to drop if P6's manual check fails)
+### Item 6 - pager (OUT-19 `done`; kept after P6's check, opt-in on Windows)
 
 ```python
 @contextlib.contextmanager
@@ -146,10 +146,13 @@ def pager(self) -> Iterator[None]
 - `ctx.out.pager(pager=_ClickPager(...), styles=True)`. `_ClickPager.show` calls
   `click.echo_via_pager(content.rstrip("\n"), color=...)`, as click adds its own newline.
 - Click supplies only `LESS=-R`, so set `LESS=-FIRX` in `os.environ` for the call, when unset.
-- Windows routes through `_tempfilepager`, with `more` when `PAGER` is unset: pass `color=False`
-  there, because `more`'s ANSI handling is untested.
+- P6 outcome: `more` garbles UTF-8 & cannot scroll, so `ctx.pager` never defaults to it. On
+  Windows with `PAGER` blank the block prints directly. Windows pages through click's temp file,
+  which strips styles when `color` is `None`, so `color=True` is passed only when `PAGER` names
+  `less` (any case, `.exe` or a quoted path) and pyclig itself set `LESS=-FIRX`; otherwise click
+  decides. POSIX behaviour is unchanged.
 - Hazards to document: `click.echo` inside the block bypasses the buffer, and output is held until
-  the block ends.
+  the block ends. A raise skips the pager, but Rich flushes what was printed to STDOUT.
 
 ### Item 7 - grouped failures (ERR-3 `done`)
 
@@ -195,6 +198,10 @@ Fit reports (not stops unless they fail):
 P6 manual check: the implementer leaves a demo script in the scratchpad and gives me the command.
 You run it with `!` in Windows Terminal and WSL, on long & short output, with `PAGER` unset and set
 to `less`. If `more` garbles it badly, ship 0.4 without the pager.
+
+P6 result: WSL with `less` is perfect; Git's `less.exe` through `PAGER` works on Windows (`-FIRX`,
+UTF-8, `q` restores the prompt); `more` garbles UTF-8 and cannot scroll, which pyclig cannot fix.
+Decision: keep the pager and never default to `more`, replacing the fallback above.
 
 P7 edits:
 
