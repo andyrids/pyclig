@@ -179,11 +179,11 @@ class Context(click.Context):
 
         The page goes through `click.echo_via_pager`, so `PAGER` is
         honoured and `less` gets `LESS=-FIRX` when `LESS` is unset. A
-        no-op in `plain` & `json`: those are for pipes, and `-q` never
-        pages. On Windows paging is opt-in: with `PAGER` blank the output
-        prints directly, because click's fallback there is `more`, which
-        garbles UTF-8 & cannot scroll; `PAGER=less` (Git for Windows ships
-        one) pages in colour.
+        no-op in `plain` & `json`, which are for pipes; `-q` marks STDERR
+        only, so a `human` run still pages. On Windows paging is opt-in:
+        with `PAGER` blank the output prints directly, because click's
+        fallback there is `more`, which garbles UTF-8 & cannot scroll;
+        `PAGER=less` (Git for Windows ships one) pages in colour.
 
         NOTE: Output is held until the block ends, then paged in one go.
         If the block raises, what it printed is flushed to STDOUT unpaged.
