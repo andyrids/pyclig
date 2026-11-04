@@ -731,6 +731,13 @@ class Group(Command, click.Group):
     ) -> tuple[str | None, click.Command | None, list[str]]:
         """Resolve the subcommand; a help flag wins over an unknown name.
 
+        `help [NAME...]` shows the help of the named command, or of this
+        group, & exits 0, unless the group has a `help` command of its own.
+        It is never in `.commands`, so it is not listed under `COMMANDS:`.
+
+        NOTE: Options before `help` are parsed first, so a required root
+        option errors before `prog help` can answer.
+
         Args:
             ctx: The group's context.
             args: The remaining arguments, the command name first.
@@ -738,11 +745,47 @@ class Group(Command, click.Group):
         Returns:
             The command name, the command & the arguments after it.
         """
+        if (
+            args
+            and args[0] == "help"
+            and not ctx.resilient_parsing
+            and self.get_command(ctx, "help") is None
+        ):
+            self._help_command(ctx, args[1:])
         try:
             return super().resolve_command(ctx, args)
         except click.UsageError:
             _help_if_asked(ctx, args)
             raise
+
+    def _help_command(self, ctx: click.Context, args: list[str]) -> NoReturn:
+        """Show the help of the command `args` name, or of `ctx`, & exit 0.
+
+        NOTE: Each name resolves through `resolve_command`, so an unknown
+        one gets click's error & suggestions. A child context is built
+        without parsing, so the named command's options are not required.
+
+        Args:
+            ctx: The group's context.
+            args: The arguments after `help`; dashed ones are ignored.
+
+        Raises:
+            click.UsageError: For a name that is not a command, or a
+                name after a command that has no subcommands.
+        """
+        current = ctx
+        for name in (arg for arg in args if not arg.startswith("-")):
+            group = current.command
+            if not isinstance(group, click.Group):
+                current.fail(f"Got unexpected extra argument ({name})")
+            _, sub, _ = group.resolve_command(current, [name])
+            if sub is None:
+                current.fail(f"No such command '{name}'.")
+            current = sub.context_class(
+                sub, info_name=name, parent=current, **sub.context_settings
+            )
+        click.echo(current.get_help(), color=ctx.color)
+        ctx.exit()
 
 
 def command(

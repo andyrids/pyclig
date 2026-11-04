@@ -989,3 +989,149 @@ def test_emit_empty_records() -> None:
         result = invoke(_emitter([], caption="none"), out_tty=out_tty)
         assert result.stdout == ""
         assert result.stderr == "none\n"
+
+
+def _nested(**kwargs: Any) -> tuple[pyclig.Group, list[str]]:
+    """Return a two-level group & the list its callbacks append to."""
+    calls: list[str] = []
+
+    @pyclig.group("prog", **kwargs)
+    def prog() -> None:
+        """Run the program."""
+        calls.append("root")
+
+    @prog.group()
+    def grp() -> None:
+        """Run the nested group."""
+        calls.append("grp")
+
+    @grp.command()
+    @click.option("--value", required=True, help="A value.")
+    def leaf(value: str) -> None:
+        """Run the nested command."""
+        calls.append("leaf")
+
+    @prog.command()
+    @click.option("--value", required=True, help="A value.")
+    def req(value: str) -> None:
+        """Run with a required option."""
+        calls.append("req")
+
+    return prog, calls
+
+
+def test_help_command_prints_full_help_without_the_callback() -> None:
+    """Assert `prog help` is `prog --help`, exit 0, & no callback runs."""
+    prog, calls = _nested()
+    result = invoke(prog, ["help"])
+    assert result.exit_code == 0
+    assert calls == []
+    assert result.stdout == invoke(_nested()[0], ["--help"]).stdout
+    assert result.stderr == ""
+
+
+def test_help_command_on_an_empty_group() -> None:
+    """Assert `help` works on a group with no commands."""
+
+    @pyclig.group("empty")
+    def empty() -> None:
+        """Run the empty program."""
+
+    result = invoke(empty, ["help"])
+    assert result.exit_code == 0
+    assert result.stdout == invoke(empty, ["--help"]).stdout
+
+
+@pytest.mark.parametrize(
+    ("args", "path"),
+    [
+        (["help", "grp", "leaf"], ["grp", "leaf"]),
+        (["help", "grp"], ["grp"]),
+        (["-d", "help", "req"], ["req"]),
+        (["help", "-d", "req"], ["req"]),
+        (["help", "help"], []),
+    ],
+)
+def test_help_command_names_a_command(
+    args: list[str], path: list[str]
+) -> None:
+    """Assert `help NAME...` is that command's `--help`, with no callback."""
+    prog, calls = _nested()
+    result = invoke(prog, args)
+    assert result.exit_code == 0
+    assert calls == []
+    assert result.stdout == invoke(_nested()[0], [*path, "--help"]).stdout
+
+
+def test_help_command_inside_a_group_runs_the_root_callback() -> None:
+    """Assert `prog grp help leaf` is `prog grp leaf --help`: root runs."""
+    prog, calls = _nested()
+    result = invoke(prog, ["grp", "help", "leaf"])
+    assert result.exit_code == 0
+    assert calls == ["root"]
+    expected = invoke(_nested()[0], ["grp", "leaf", "--help"]).stdout
+    assert result.stdout == expected
+
+
+@pytest.mark.parametrize(
+    ("args", "message"),
+    [
+        (["help", "nosuch"], "No such command 'nosuch'"),
+        (["help", "req", "x"], "Got unexpected extra argument (x)"),
+        (["help", "grp", "nosuch"], "No such command 'nosuch'"),
+    ],
+)
+def test_help_command_unknown_name_is_a_usage_error(
+    args: list[str], message: str
+) -> None:
+    """Assert a name `help` cannot resolve is a usage error, exit 2."""
+    prog, _ = _nested()
+    result = invoke(prog, args)
+    assert result.exit_code == 2
+    assert message in result.stderr
+    assert result.stdout == ""
+
+
+def test_help_command_yields_to_the_apps_own() -> None:
+    """Assert a group's own `help` command wins over the built-in."""
+    prog, _ = _nested()
+
+    @prog.command("help")
+    def help_() -> None:
+        """Print the app's own help."""
+        click.echo("mine")
+
+    assert invoke(prog, ["help", "anything"]).exit_code == 2
+    assert invoke(prog, ["help"]).stdout == "mine\n"
+
+
+def test_help_command_is_not_listed_and_errors_after_root_options() -> None:
+    """Assert `help` is absent from COMMANDS & a required root option wins."""
+    prog, _ = _nested()
+    listed = [
+        line.split()[0]
+        for line in invoke(prog, ["--help"]).stdout.splitlines()
+        if line.startswith("  ")
+    ]
+    assert "help" not in listed
+    assert "req" in listed
+
+    @pyclig.group("strict")
+    @click.option("--token", required=True)
+    def strict(token: str) -> None:
+        """Run with a required root option."""
+
+    @strict.command()
+    def sub() -> None:
+        """Run the command."""
+
+    result = invoke(strict, ["help", "sub"])
+    assert result.exit_code == 2
+    assert "Missing option '--token'" in result.stderr
+
+
+def test_help_command_is_not_intercepted_for_completion() -> None:
+    """Assert resilient parsing, as in tab completion, resolves normally."""
+    prog, _ = _nested()
+    ctx = prog.make_context("prog", ["help"], resilient_parsing=True)
+    assert prog.resolve_command(ctx, ["help", "x"]) == (None, None, ["x"])
