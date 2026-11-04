@@ -92,3 +92,10 @@ def test_wrapped_notices_from_threads_never_interleave() -> None:
     heads = [i for i, line in enumerate(lines) if "warning:" in line]
     assert len(heads) == 8 * 20
     assert {b - a for a, b in itertools.pairwise(heads)} == {3}
+
+
+def test_messages_drop_c1_controls() -> None:
+    """Assert 8-bit C1 codes (`\x9b` is CSI) are dropped like 7-bit ones."""
+    console, buffer = _console(tty=False)
+    pyclig.info(console, message="path\x9b2J\x85/file")
+    assert buffer.getvalue() == "path2J/file\n"

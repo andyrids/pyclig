@@ -27,7 +27,7 @@ Level = Literal["error", "warning"]
 """A `notice` level."""
 
 _LEVEL_STYLES: dict[Level, str] = {"error": "red", "warning": "yellow"}
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 _QUIET = "_pyclig_quiet"
 
 
