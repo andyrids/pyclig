@@ -295,14 +295,16 @@ def progress(
 
     Disabled when the console is not interactive (piped, dumb or quiet),
     so `add_task` & `update` still work but nothing draws. Transient by
-    default: the bars vanish when the block ends. Task descriptions are
-    never parsed as markup.
+    default: the bars vanish when the block ends. The description column
+    & `str` columns never parse markup and drop control codes, like every
+    message here; a `ProgressColumn` you pass renders as you built it.
 
     Args:
         console: The console to animate on, usually STDERR.
         columns: The columns, instead of description, bar, percentage &
             time remaining. A `str` is a `TextColumn` format string, e.g.
-            `{task.description}`, rendered with markup off.
+            `{task.description}`, rendered with markup off & control codes
+            dropped: prefer it to a `TextColumn` of your own.
         **kwargs: Passed to `Progress`, e.g. `transient=False`.
 
     Returns:
@@ -311,20 +313,36 @@ def progress(
     from rich.progress import (
         BarColumn,
         Progress,
+        Task,
         TaskProgressColumn,
         TextColumn,
         TimeRemainingColumn,
     )
+
+    class PlainColumn(TextColumn):
+        """A `TextColumn` that never parses markup & drops control codes."""
+
+        def render(self, task: Task) -> Text:
+            """Render `task` through the format string, sanitised.
+
+            Args:
+                task: The task to describe.
+
+            Returns:
+                The text, in the column's style.
+            """
+            text = _CONTROL.sub("", self.text_format.format(task=task))
+            return Text(text, style=self.style, justify=self.justify)
 
     kwargs.setdefault("transient", True)
     kwargs["disable"] = (
         kwargs.get("disable", False) or not console.is_interactive
     )
     cols: list[ProgressColumn] = [
-        TextColumn(c, markup=False) if isinstance(c, str) else c
+        PlainColumn(c, markup=False) if isinstance(c, str) else c
         for c in columns
     ] or [
-        TextColumn("{task.description}", markup=False),
+        PlainColumn("{task.description}", markup=False),
         BarColumn(),
         TaskProgressColumn(),
         TimeRemainingColumn(),

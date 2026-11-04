@@ -191,10 +191,12 @@ Messages & feedback take the console first, then keyword-only arguments:
 | `progress(columns=, **kwargs)` | A transient Rich `Progress` | Disabled |
 
 `-q` drops `info`, `row` (unless `essential=True`), `summary` (unless `failed=True`) & animation;
-`notice` & `hint` stay. `status` & `progress` animate only on an interactive console, and task
-descriptions are never markup. A grouped failure is one `notice(items=...)` then a `hint` with the
-remedy. Control characters, including terminal escapes, are dropped from messages, and a `str` is
-never parsed as markup; a `rich.text.Text` with a `style` prints styled, as given.
+`notice` & `hint` stay. `status` & `progress` animate only on an interactive console. A grouped
+failure is one `notice(items=...)` then a `hint` with the remedy. Control characters, including
+terminal escapes, are dropped from messages, and a `str` is never parsed as markup; a
+`rich.text.Text` with a `style` prints styled, as given. That holds for the description column &
+`str` columns of `progress` too, so prefer them to a `TextColumn` of your own, which renders as you
+built it.
 
 ## Standard flags
 

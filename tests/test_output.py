@@ -306,12 +306,18 @@ def test_progress_transient_by_default() -> None:
     assert pyclig.progress(console, transient=False).live.transient is False
 
 
-def test_progress_descriptions_are_not_markup() -> None:
-    """Assert `[/b]` in a task description renders instead of raising."""
+@pytest.mark.parametrize("columns", [(), ("{task.description}",)])
+def test_progress_descriptions_print_literally(
+    columns: tuple[str, ...],
+) -> None:
+    """Assert a description is not markup & its control codes are dropped."""
     console, buffer = _console(tty=True)
-    with pyclig.progress(console) as bar:
-        bar.add_task("[/b] step\x1b[2J", total=2)
-    assert "[/b] step" in buffer.getvalue()
+    with pyclig.progress(console, columns=columns) as bar:
+        bar.add_task("[/b] step\x1b[2J\x9b2J", total=2)
+    output = buffer.getvalue()
+    assert "[/b] step" in output
+    assert "\x1b[2J" not in output
+    assert "\x9b" not in output
 
 
 def test_progress_str_columns_are_not_markup() -> None:
