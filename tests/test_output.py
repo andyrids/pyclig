@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 import pytest
 from rich.console import Console
+from rich.text import Text
 
 import pyclig
 from pyclig._output import silence
@@ -158,3 +159,97 @@ def test_notice_with_items_prints_once_and_survives_quiet() -> None:
         pyclig.notice(console, level="error", message="m", items=["a", "b"])
     assert spy.call_count == 1
     assert buffer.getvalue().count("\n") == 3
+
+
+def test_row_pads_label_by_cell_width() -> None:
+    """Assert a row pads the label column by cell length, not characters."""
+    console, buffer = _console(tty=False)
+    pyclig.row(console, mark="ok", label="名", detail="detail", width=4)
+    assert buffer.getvalue() == "ok  名    detail\n"
+
+
+def test_row_never_wraps() -> None:
+    """Assert a row stays one line on a narrow terminal & off it."""
+    for tty in (False, True):
+        console, buffer = _console(tty=tty, width=20)
+        pyclig.row(console, mark="ok", label="a label", detail="a long detail")
+        assert buffer.getvalue() == "ok  a label  a long detail\n"
+
+
+def test_row_omits_padding_without_detail() -> None:
+    """Assert a row with no detail carries no trailing padding."""
+    console, buffer = _console(tty=False)
+    pyclig.row(console, mark="ok", label="short", width=10)
+    assert buffer.getvalue() == "ok  short\n"
+
+
+def test_row_dropped_when_quiet_unless_essential() -> None:
+    """Assert `-q` drops rows, except those marked essential."""
+    console, buffer = _console(tty=False)
+    silence(console)
+    pyclig.row(console, mark="ok", label="dropped")
+    pyclig.row(console, mark="!", label="kept", essential=True)
+    assert buffer.getvalue() == "!  kept\n"
+
+
+def test_row_sanitises_strings_and_trusts_text() -> None:
+    """Assert `str` cells print markup literally & drop control codes."""
+    console, buffer = _console(tty=True)
+    mark = Text("ok", style="green")
+    pyclig.row(console, mark=mark, label="[/b]\x1b[2J", detail="a\x9bb")
+    assert buffer.getvalue() == "\x1b[32mok\x1b[0m  [/b][2J  ab\n"
+    console, buffer = _console(tty=False)
+    pyclig.row(console, mark=":warning:\x7f", label="x")
+    assert buffer.getvalue() == ":warning:  x\n"
+
+
+def test_summary_marks_success_and_failure() -> None:
+    """Assert a summary leads with `✓`, or `!` when it failed."""
+    console, buffer = _console(tty=False)
+    pyclig.summary(console, message="3 files checked")
+    pyclig.summary(console, message="2 files failed", failed=True)
+    assert buffer.getvalue() == "✓ 3 files checked\n! 2 files failed\n"
+
+
+def test_summary_wraps_only_on_a_terminal() -> None:
+    """Assert a summary wraps under its text on a TTY, & is one line off."""
+    message = "one two three four five six seven"
+    console, buffer = _console(tty=True, width=24)
+    pyclig.summary(console, message=message)
+    assert buffer.getvalue().splitlines()[1:] == ["  five six seven"]
+    console, buffer = _console(tty=False, width=24)
+    pyclig.summary(console, message=message)
+    assert buffer.getvalue() == f"✓ {message}\n"
+
+
+@pytest.mark.parametrize(
+    ("message", "shown"),
+    [
+        ("[/b]", "[/b]"),
+        (":warning:", ":warning:"),
+        ("a\x9b2Jb\x1b[0m", "a2Jb[0m"),
+    ],
+)
+def test_summary_prints_literally(message: str, shown: str) -> None:
+    """Assert a summary prints markup as written & drops control codes."""
+    console, buffer = _console(tty=True)
+    pyclig.summary(console, message=message)
+    assert buffer.getvalue().endswith(f" {shown}\n")
+
+
+def test_summary_dropped_when_quiet_unless_failed() -> None:
+    """Assert `-q` drops a success summary & keeps a failed one."""
+    console, buffer = _console(tty=False)
+    silence(console)
+    pyclig.summary(console, message="done")
+    pyclig.summary(console, message="failed", failed=True)
+    assert buffer.getvalue() == "! failed\n"
+
+
+def test_summary_on_stdout_stays_when_stderr_quiet() -> None:
+    """Assert `-q` marks STDERR only, so a summary on STDOUT prints."""
+    err, _ = _console(tty=False)
+    out, buffer = _console(tty=False)
+    silence(err)
+    pyclig.summary(out, message="done")
+    assert buffer.getvalue() == "✓ done\n"

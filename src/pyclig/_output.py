@@ -179,6 +179,60 @@ def hint(console: Console, *, message: str) -> None:
     )
 
 
+def row(
+    console: Console,
+    *,
+    mark: Text | str,
+    label: str,
+    detail: Text | str = "",
+    width: int = 0,
+    essential: bool = False,
+) -> None:
+    """Print one state row: `mark  label  detail`, never wrapped.
+
+    Columns are two spaces apart; `label` is padded to `width` cells, so
+    rows align when every call passes the widest label's cell length. The
+    mark column is the caller's: pass a `mark` already padded to a fixed
+    width. A `str` mark or detail is sanitised like `label`; a `Text` is
+    printed as given. The line prints in one call, so rows from worker
+    threads never interleave. Dropped when the console is quiet, unless
+    `essential`.
+
+    Args:
+        console: The console to print to, usually STDERR.
+        mark: The state word or symbol leading the row, e.g. `ok`.
+        label: What changed, e.g. a step or a path.
+        detail: What happened to it; without one, the row ends at `label`.
+        width: The label column's width in cells; `0` pads nothing.
+        essential: Keep the row when the console is quiet.
+    """
+    if is_quiet(console) and not essential:
+        return
+    cell = _text(label)
+    pad = " " * max(width - cell.cell_len, 0)
+    line = Text.assemble(_head(mark), "  ", cell, pad, "  ", _head(detail))
+    line.rstrip()
+    console.print(line, soft_wrap=True)
+
+
+def summary(console: Console, *, message: str, failed: bool = False) -> None:
+    """Print a closing line: `✓ message`, or `! message` when it failed.
+
+    Wrapped with a hanging indent on a terminal, one line otherwise.
+    Dropped when the console is quiet, unless `failed`. `-q` marks only the
+    STDERR console, so a summary on STDOUT stays.
+
+    Args:
+        console: The console to print to.
+        message: The outcome, e.g. `3 files checked`.
+        failed: Whether the run failed, which keeps the line under `-q`.
+    """
+    if is_quiet(console) and not failed:
+        return
+    mark = Text("!", style="bold red") if failed else Text("✓", style="green")
+    console.print(_line(console, head=mark, message=message), soft_wrap=True)
+
+
 def print_exception(console: Console, error: BaseException) -> None:
     """Print an exception's traceback - Rich on a terminal, else plain.
 
