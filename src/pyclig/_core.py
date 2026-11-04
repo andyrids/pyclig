@@ -16,7 +16,7 @@ License:
 import contextlib
 import functools
 import sys
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
@@ -167,6 +167,33 @@ class Context(click.Context):
             table=table,
             caption=caption,
         )
+
+    @contextlib.contextmanager
+    def pager(self) -> Iterator[None]:
+        """Page what the block prints on `ctx.out`, in `human` format only.
+
+        ```python
+        with ctx.pager():
+            ctx.emit(rows, table=make_table, caption=caption)
+        ```
+
+        The page goes through `click.echo_via_pager`, so `PAGER` is
+        honoured, `less` gets `LESS=-FIRX` when `LESS` is unset & Windows
+        falls back to `more` without colour. A no-op in `plain` & `json`:
+        those are for pipes, and `-q` never pages.
+
+        NOTE: Output is held until the block ends, then paged in one go;
+        an exception in the block discards it. `click.echo` inside the
+        block bypasses the page and prints at once.
+
+        Yields:
+            Nothing; the pager runs when the block ends.
+        """
+        if self.format != "human":
+            yield
+            return
+        with self.out.pager(pager=_output._ClickPager(), styles=True):
+            yield
 
 
 def _require_state(ctx: click.Context) -> _run.State:

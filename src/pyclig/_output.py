@@ -17,13 +17,16 @@ License:
 """
 
 import contextlib
+import os
 import re
+import sys
 import traceback
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 import click
 from rich.console import Console
+from rich.pager import Pager
 from rich.text import Text
 
 if TYPE_CHECKING:
@@ -390,3 +393,36 @@ def emit(
         return
     if caption is not None:
         info(err, message=caption)
+
+
+class _ClickPager(Pager):
+    """Rich's pager hook, routed through `click.echo_via_pager`.
+
+    NOTE: Click adds a newline after the content, so the trailing one is
+    dropped. Click supplies `LESS=-R` alone, so `LESS=-FIRX` is set for
+    the call when unset: quit if it fits, ignore case, raw colour, no
+    screen clear. Windows pages with `more` when `PAGER` is unset, whose
+    ANSI handling is untested, so colour is off there; elsewhere click
+    decides, keeping it for `less` in raw mode.
+    """
+
+    def show(self, content: str) -> None:
+        """Page `content` through click's pager.
+
+        Args:
+            content: The rendered output, styles included.
+        """
+        more = (
+            sys.platform.startswith("win")
+            and not os.environ.get("PAGER", "").strip()
+        )
+        unset = "LESS" not in os.environ
+        if unset:
+            os.environ["LESS"] = "-FIRX"
+        try:
+            click.echo_via_pager(
+                content.rstrip("\n"), color=False if more else None
+            )
+        finally:
+            if unset:
+                os.environ.pop("LESS", None)

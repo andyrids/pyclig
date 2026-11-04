@@ -2,12 +2,15 @@
 
 import json
 import logging
+import os
 import re
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import click
 import pytest
@@ -1135,3 +1138,96 @@ def test_help_command_is_not_intercepted_for_completion() -> None:
     prog, _ = _nested()
     ctx = prog.make_context("prog", ["help"], resilient_parsing=True)
     assert prog.resolve_command(ctx, ["help", "x"]) == (None, None, ["x"])
+
+
+def _pager_cli(body: Callable[[pyclig.Context], None]) -> pyclig.Command:
+    """Return a command running `body` inside `ctx.pager()`."""
+
+    @pyclig.command("page")
+    @pyclig.options.json_output()
+    @pyclig.options.plain()
+    @pyclig.pass_context
+    def page(ctx: pyclig.Context, json_output: bool) -> None:
+        """Page the body's output."""
+        with ctx.pager():
+            body(ctx)
+
+    return page
+
+
+def test_pager_is_a_no_op_unless_human() -> None:
+    """Assert plain & JSON output never go near a pager."""
+    cli = _pager_cli(lambda ctx: ctx.emit(_RECORDS))
+    with patch("click.echo_via_pager") as spy:
+        plain, as_json = invoke(cli), invoke(cli, ["--json"])
+    spy.assert_not_called()
+    assert plain.stdout == invoke(_emitter(_RECORDS)).stdout
+    assert as_json.stdout == invoke(_emitter(_RECORDS), ["--json"]).stdout
+
+
+def test_pager_pages_human_output_once_without_its_newline() -> None:
+    """Assert the block's console output is one page, click adding `\n`."""
+    cli = _pager_cli(lambda ctx: ctx.emit(_RECORDS, caption="2 rows"))
+    with patch("click.echo_via_pager") as spy:
+        result = invoke(cli, out_tty=True)
+    assert result.exit_code == 0
+    spy.assert_called_once()
+    expected = invoke(_emitter(_RECORDS, caption="2 rows"), out_tty=True)
+    assert spy.call_args[0][0] == expected.stdout.rstrip("\n")
+    assert "2 rows" in spy.call_args[0][0].splitlines()[-1]
+
+
+def test_pager_holds_console_output_but_not_click_echo() -> None:
+    """Assert `click.echo` bypasses the page, which prints at block end."""
+
+    def body(ctx: pyclig.Context) -> None:
+        ctx.out.print("buffered")
+        click.echo("direct")
+
+    result = invoke(_pager_cli(body), out_tty=True)
+    assert result.stdout == "direct\nbuffered\n"
+
+
+def test_pager_keeps_styles_for_the_pager() -> None:
+    """Assert styled console output reaches the pager with its codes."""
+    cli = _pager_cli(lambda ctx: pyclig.summary(ctx.out, message="done"))
+    with patch("click.echo_via_pager") as spy:
+        invoke(cli, out_tty=True, color=True)
+    assert spy.call_args[0][0] == "\x1b[32m✓\x1b[0m done"
+
+
+def test_pager_sets_less_flags_for_the_call_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert `LESS=-FIRX` applies to the pager call only, unless set."""
+    seen: list[str | None] = []
+    cli = _pager_cli(lambda ctx: ctx.out.print("x"))
+    with patch(
+        "click.echo_via_pager",
+        side_effect=lambda *a, **k: seen.append(os.environ.get("LESS")),
+    ):
+        monkeypatch.delenv("LESS", raising=False)
+        invoke(cli, out_tty=True)
+        assert "LESS" not in os.environ
+        monkeypatch.setenv("LESS", "-X")
+        invoke(cli, out_tty=True)
+    assert seen == ["-FIRX", "-X"]
+
+
+@pytest.mark.parametrize(
+    ("platform", "pager", "color"),
+    [("win32", "", False), ("win32", "less", None), ("linux", "", None)],
+)
+def test_pager_colour_is_off_for_windows_more(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    pager: str,
+    color: bool | None,
+) -> None:
+    """Assert colour is off only where click would page with `more`."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv("PAGER", pager)
+    cli = _pager_cli(lambda ctx: ctx.out.print("x"))
+    with patch("click.echo_via_pager") as spy:
+        invoke(cli, out_tty=True)
+    assert spy.call_args[1]["color"] is color
