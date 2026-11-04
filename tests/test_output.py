@@ -103,6 +103,15 @@ def test_messages_drop_c1_controls() -> None:
     assert buffer.getvalue() == "path2J/file\n"
 
 
+def test_hint_kept_and_info_dropped_when_quiet() -> None:
+    """Assert `-q` drops `info` but keeps `hint`, which the user acts on."""
+    console, buffer = _console(tty=False)
+    silence(console)
+    pyclig.info(console, message="context")
+    pyclig.hint(console, message="run `prog --help`")
+    assert buffer.getvalue() == "run `prog --help`\n"
+
+
 def test_notice_items_indented_off_a_terminal() -> None:
     """Assert grouped items follow the header, one unwrapped line each."""
     console, buffer = _console(tty=False, width=20)
