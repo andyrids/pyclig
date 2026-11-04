@@ -256,3 +256,96 @@ only fail by import until the module existed.
 - A `GlobalOption` declared on a nested group is collapsed on its subcommands with a pointer to
   the root, where it is not listed.
 - Run flags are not applied when parsing fails before them (`--no-color --bogus` may print red).
+
+## Round 4 - output and feedback
+
+Date: 4 November 2026. `docs/plan-0.4.0.md` set seven items and a C1 fix; `feat/output-feedback`
+ships them in ten feature commits. A fresh agent evaluated from the plan and `git diff
+76dba75...HEAD` alone. The consumers were not changed: each was cloned into a scratch directory at
+its `origin/develop`, run unmodified on a wheel of the branch with only the pin overridden, and
+their fit claims were sketched, not applied.
+
+| Repository | Tests | Notes |
+| --- | --- | --- |
+| pyclig | 262 passed, 97% coverage | 3.11, 3.13 & 3.14; mypy clean on 3.11 & 3.14; prek clean |
+| dkais (scratch, `f15b488`) | 134 on 0.3.0; 134 on the branch, 0 fail | Exactly as predicted |
+| pkgdx (scratch, `d132947`) | 242 on 0.3.0; 242 on the branch, 0 fail | Exactly as predicted |
+| template (scratch) | Generated `cli=True`: 5 on 0.3.0; 5 on the branch | `e19ff12`; `help` works |
+
+### Verdict on the plan's items
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| 1 `ctx.emit` | Confirmed by subprocess | `test_emit_plain_is_tsv_with_the_caption_on_stderr` |
+| 2 `row`, `summary` | Confirmed; matches pkgdx `_row` | `test_row_pads_label_by_cell_width` |
+| 3 `status`, `progress` | Partly; see defect 1 | `test_progress_descriptions_are_not_markup` |
+| 4 `hint` | Confirmed | `test_hint_kept_and_info_dropped_when_quiet` |
+| 5 `help` | Confirmed, every row of the table | `test_help_command_names_a_command` |
+| 6 `ctx.pager` | Confirmed on a ConPTY; see defect 2 | `test_pager_is_opt_in_on_windows` |
+| 7 `notice(items=)` | Confirmed from 8 threads | `test_notice_items_indented_off_a_terminal` |
+| C1 fix | Confirmed | `test_messages_drop_c1_controls` |
+
+Items 1, 5 & 6 are in `tests/test_core.py`, the rest in `tests/test_output.py`. By subprocess:
+`emit | cut -f1` keeps tabs, `--json` parses, `FORCE_COLOR=1` on a pipe stays TSV and `-q` drops
+the caption; 160 grouped notices from 8 threads never split; tab completion is not intercepted.
+
+Reversion: each feature commit's tests were run with `src/` at the commit's parent. Every test
+fails except those that lock an invariant: `help` yields to an app's own command, is not listed
+and is not intercepted under resilient parsing (3 tests), and in the pager fix the rows that
+expect `color=None`, POSIX paging and the raise-flushes case (6 cases). Those pass by design and
+keep their value as guards.
+
+### Defects found
+
+1. `progress` task descriptions are not sanitised (`_output.py:327`): `bar.add_task("step\x1b[2J")`
+   or `"step\x9b2J"` clears a real terminal, wiping the rows and notices printed before the bar
+   (ConPTY, pyte screen). Every other primitive strips control codes and README says they are
+   dropped from messages; the test puts `\x1b[2J` in and does not assert it is gone.
+2. `Context.pager` says "`-q` never pages" (`_core.py:182`) but `prog -q cmd` pages on a terminal:
+   the format stays `human`, so `less` runs (ConPTY, `PAGER=less`). Code or docstring, one must move.
+3. `emit` JSON prints `NaN` and `Infinity` for non-finite floats (`_output.py:383`, `json.dumps`
+   default `allow_nan=True`), which is not JSON; `jq` rejects it. No consumer row has one.
+
+### Integration on the branch
+
+- Real CLIs on the wheel: `dkais help list` & `pkgdx help init` print that command's help, exit 0;
+  `FORCE_COLOR=1 dkais list --start 2026-10 | cut -f1` prints bare keys with a coloured STDERR
+  (one public bucket read, 32 archives).
+- The fallback case: pkgdx 0.7.0 from PyPI resolves with the branch wheel; `pkgdx --help`,
+  `pkgdx init` in a throwaway project (3 changed, one network warning, exit 0) & `assert_conforms`
+  clean. `assert_conforms` also clean on dkais & pkgdx develop.
+- `import pyclig` loads none of `rich.progress`, `rich.table`, `rich.box`, `rich.live`,
+  `rich.traceback`, `rich.logging`, `importlib.metadata` or `_conformance`; the only new
+  module-level imports are `shlex` & `rich.pager`. `test_fast_paths_skip_heavy_imports` passes.
+- Start-up, median of 15 (0.3.0 → branch): `dkais --help` 172 → 176 ms, `dkais -v` 175 → 176 ms,
+  `import dkais.__main__` 156 → 154 ms, `pkgdx --help` 178 → 179 ms, `import pyclig` 127 → 134 ms.
+- Pager on a Windows ConPTY: blank `PAGER` and a missing command print directly, Git's `less`
+  pages and `q` returns the prompt, `-F` quits when it fits, `LESS` is unset again afterwards and
+  a preset `LESS=-X` is left alone; `--json` never pages.
+- Claims: every row moved to `done` in `clig-coverage.md` names behaviour that was observed;
+  README & CHANGELOG match the code, except README's "control characters ... are dropped from
+  messages" for `progress`; the shipped signatures match the plan; `Requires-Dist` is still
+  `click~=8.5` & `rich~=15.0`.
+
+### Departures from the plan
+
+- `grp help leaf` runs the root callback only; `grp leaf --help` also runs `grp`'s. The table
+  speaks of the root callback, so it holds, narrowly.
+- The `emit` fit for dkais `list` is byte-identical for JSON, plain rows & the caption; an empty
+  listing in `human` moves the caption from an empty table on STDOUT to STDERR, and a `None` cell
+  prints blank where `_tsv` prints `None`.
+- The `row` fit for pkgdx `_row` is byte-identical with a detail; without one the trailing padding
+  goes. pkgdx's `quiet` skip of OK rows maps to `essential=`.
+- The tree versions as `0.2.1.dev39`: `v0.3.0` is not an ancestor of the branch. The wheel was
+  built with `SETUPTOOLS_SCM_PRETEND_VERSION=0.4.0`.
+
+### Remaining after 0.4.0
+
+- `PYTHONIOENCODING=` set but empty counts as explicit (`_run.py:143`), so the streams stay
+  cp1252 where Python itself would ignore it. Pre-existing.
+- On Windows a STDOUT redirected to `NUL` reports as a terminal, so `prog > NUL` picks `human`.
+  Pre-existing `isatty`.
+- Inside `ctx.pager()` on a `TTY_COMPATIBLE=1` pipe with a `PAGER` other than `less`, click strips
+  the colour that `FORCE_COLOR` keeps outside the block.
+- Not verified this round: `less` on POSIX (the P6 record covers WSL) and tab completion through
+  a real shell (the unit test covers resilient parsing).
