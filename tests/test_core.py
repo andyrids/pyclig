@@ -1287,3 +1287,10 @@ def test_pager_forces_colour_only_for_less_in_raw_mode(
     with patch("click.echo_via_pager") as spy:
         invoke(cli, out_tty=True)
     assert spy.call_args[1]["color"] is color
+
+
+def test_emit_json_refuses_nan() -> None:
+    """Assert a NaN record is a bug, exit 70, never bare `NaN` on STDOUT."""
+    result = invoke(_emitter([{"x": float("nan")}]), ["--json"])
+    assert result.exit_code == pyclig.ExitCode.INTERNAL
+    assert result.stdout == ""

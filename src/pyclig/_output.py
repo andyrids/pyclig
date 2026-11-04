@@ -398,7 +398,8 @@ def emit(
     if fmt == "json":
         import json
 
-        click.echo(json.dumps(rows, indent=2, default=str), file=out.file)
+        text = json.dumps(rows, indent=2, default=str, allow_nan=False)
+        click.echo(text, file=out.file)
         return
     keys = list(rows[0]) if rows else []
     if fmt == "plain":

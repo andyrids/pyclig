@@ -141,6 +141,8 @@ class Context(click.Context):
         """Print `records` to STDOUT in the run's format.
 
         - `json`: an indented list, other values as `str()`; no caption.
+          `NaN` & infinities are not JSON: convert them first, or the run
+          fails as a bug (exit 70) rather than print what parsers reject.
         - `plain`: TSV without a header, the first record's keys as the
           columns; the caption goes to `info(ctx.err)`.
         - `human`: `table()`, or a `SIMPLE_HEAD` table with a column per
