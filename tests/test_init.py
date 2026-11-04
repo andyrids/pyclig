@@ -14,6 +14,7 @@ import pyclig
 new = set(sys.modules) - before
 heavy = (
     "rich.traceback", "rich.logging", "pygments", "importlib.metadata",
+    "rich.progress", "rich.table", "rich.box",
     "pyclig._conformance", "pyclig.testing", "click.testing",
 )
 print(json.dumps({

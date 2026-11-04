@@ -15,7 +15,7 @@ file is shared under the same licence.
 
 CLIG is the requirement. Every actionable rule has a row here, and the IDs are the one namespace
 shared by `pyclig.testing.assert_conforms`, `docs/roadmap.md` and the CHANGELOG. Status is as of
-0.3.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
+0.4.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
 so it stays true across line moves.
 
 Status: `done` means pyclig delivers it, `done (click)` or `done (rich)` that a dependency does;
@@ -44,7 +44,7 @@ library's reach.
 | HELP-3 | Concise help content | partial | No flag list; kit: flag help text | auto |
 | HELP-4 | `-h` ignores whatever else is passed | done | `parse_args`, `resolve_command` | auto |
 | HELP-5 | Don't overload `-h` | done | An app `-h` leaves help on `--help` only | check |
-| HELP-6 | `help` & `help <command>` | gap | Roadmap 0.4 | auto |
+| HELP-6 | `help` & `help <command>` | done | `help [NAME...]` on every group | auto |
 | HELP-7 | Support path in the top-level help | partial | `epilog`; crash hint has the URL | auto |
 | HELP-8 | Link help to web docs, per subcommand | partial | `epilog` only | interface |
 | HELP-9 | Lead with examples | done | `Command.format_help`; kit: `examples=` on the root | auto |
@@ -65,21 +65,21 @@ library's reach.
 | DOC-1 | Web documentation | gap | Application concern | out |
 | DOC-2 | Terminal documentation matching the install | done (click) | `--help` | auto |
 | DOC-3 | Man pages | gap | No generator | out |
-| DOC-4 | Documentation reachable through the tool | gap | See HELP-6 | auto |
+| DOC-4 | Documentation reachable through the tool | done | See HELP-6 | auto |
 
 ## Output
 
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | OUT-1 | Human first; detect a TTY per stream | done | Honest consoles | auto |
-| OUT-2 | Line-based, `grep`-able output | partial | `click.echo` rows by hand | interface |
+| OUT-2 | Line-based, `grep`-able output | done | `ctx.emit`: TSV rows off a TTY | interface |
 | OUT-3 | `--plain` for one record per line | done | `options.plain()`, `ctx.format` | interface |
-| OUT-4 | `--json` for formatted JSON | partial | `ctx.format`; no emitter (0.4) | interface |
-| OUT-5 | Output on success, kept brief | gap | No primitive (0.4) | check |
+| OUT-4 | `--json` for formatted JSON | done | `ctx.emit` with `--json` | interface |
+| OUT-5 | Output on success, kept brief | done | `summary`; dropped by `-q` | interface |
 | OUT-6 | `-q` suppresses non-essential output | done | Drops `info` & animation | auto |
-| OUT-7 | Say so when state changes | gap | Roadmap 0.4 | interface |
+| OUT-7 | Say so when state changes | done | `row` | interface |
 | OUT-8 | Current state easy to see | gap | Application concern | out |
-| OUT-9 | Suggest the next commands | partial | Error `hint`; no primitive (0.4) | interface |
+| OUT-9 | Suggest the next commands | done | `pyclig.hint`, kept by `-q` | interface |
 | OUT-10 | Boundary crossings are explicit | gap | Application concern | out |
 | OUT-11 | Dense, scannable layout | done (rich) | `ctx.out` | interface |
 | OUT-12 | Colour with intention, sparingly | done | Prefixes only (`notice`) | auto |
@@ -88,12 +88,12 @@ library's reach.
 | OUT-13c | `TERM=dumb` | done (rich) | Rich console | auto |
 | OUT-13d | `--no-color` | done | `_flags.NO_COLOR` | auto |
 | OUT-13e | `MYAPP_NO_COLOR` | gap | Roadmap 0.5 | auto |
-| OUT-14 | No animation off a TTY | partial | `-q`; app gates (0.4) | interface |
+| OUT-14 | No animation off a TTY | done | `status` & `progress`, interactive only | interface |
 | OUT-15 | Symbols & emoji where clearer | done | UTF-8 streams; `hanging(head=)` | check |
 | OUT-16 | Developer detail only when verbose | done | `-d` | auto |
 | OUT-17 | Usability feedback from outsiders | gap | Process concern | out |
 | OUT-18 | No log labels or context by default | partial | Prefixes; levels only with `-d` | auto |
-| OUT-19 | Pager on a TTY only, `less -FIRX` | partial (click) | `echo_via_pager` | interface |
+| OUT-19 | Pager on a TTY only, `less -FIRX` | done | `ctx.pager`; opt-in on Windows | interface |
 
 ## Errors
 
@@ -101,7 +101,7 @@ library's reach.
 | --- | --- | --- | --- | --- |
 | ERR-1 | Rewrite expected errors for humans | done | `errors=` with `hint` | interface |
 | ERR-2 | High signal-to-noise ratio | partial | Tracebacks hidden for `errors=` | check |
-| ERR-3 | Group similar errors under one header | gap | Roadmap 0.4 | interface |
+| ERR-3 | Group similar errors under one header | done | `notice(items=)` | interface |
 | ERR-4 | Most important information last | done | Hints & the `--help` pointer print last | auto |
 | ERR-5 | Red sparingly | done | `notice` prefix only | auto |
 | ERR-6 | Traceback & bug instructions when unexpected | done | `_run._failed` | auto |
@@ -152,7 +152,7 @@ library's reach.
 | --- | --- | --- | --- | --- |
 | SUB-1 | Subcommands for complexity | done (click) | `pyclig.group` | out |
 | SUB-2 | Shared flags, config & storage | done | Run flags, `GlobalOption` | interface |
-| SUB-3 | Same flag names & output format | partial | Kit: plain click child | check |
+| SUB-3 | Same flag names & output format | partial | Kit: plain click child; `ctx.emit` | check |
 | SUB-4 | Consistent naming, noun-verb order | gap | Unchecked | check |
 | SUB-5 | No confusable names | gap | Unchecked | check |
 
@@ -162,9 +162,9 @@ library's reach.
 | --- | --- | --- | --- | --- |
 | ROB-1 | Validate early with a clear error | done (click) | Types, `UsageError` | interface |
 | ROB-2 | Print within 100 ms; say so before network | partial | Import about 60 ms | check |
-| ROB-3 | Progress or an ETA for long work | gap | Roadmap 0.4 | interface |
+| ROB-3 | Progress or an ETA for long work | done | `progress` | interface |
 | ROB-4 | Parallel without interleaving | partial | Atomic prints | interface |
-| ROB-5 | Hide logs on success, show on failure | gap | Roadmap 0.4 | interface |
+| ROB-5 | Hide logs on success, show on failure | partial | Transient feedback; 0.6 | interface |
 | ROB-6 | Configurable network timeouts | gap | Roadmap 0.6 | interface |
 | ROB-7 | Re-running resumes | gap | Application concern | out |
 | ROB-8 | Crash-only design | gap | Application concern | out |
@@ -250,3 +250,10 @@ application accepts is silenced with `ignore={"ARG-16": "reason"}`; the reason i
 
 BAS-3, HELP-2, HELP-4, HELP-9, OUT-1, OUT-3, OUT-6, OUT-13a, OUT-13d, ERR-1, ERR-4, ARG-2, ARG-6c,
 ARG-6d, ARG-8, ARG-9, ARG-16, INT-1, INT-2, SUB-2, FUT-3, ENV-5 & ENV-15 moved to `done`.
+
+## Delivered in 0.4.0
+
+HELP-6, DOC-4, OUT-2, OUT-4, OUT-5, OUT-7, OUT-9, OUT-14, OUT-19, ERR-3 & ROB-3 moved to `done`;
+ROB-5 to `partial`, closing in 0.6. OUT-5's owner became `interface`: the kit cannot judge
+"brief". OUT-19 pages on Windows only when `PAGER` is set, as click's `more` fallback garbles
+UTF-8 and cannot scroll.

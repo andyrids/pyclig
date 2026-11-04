@@ -13,16 +13,17 @@ interfaces a later rule would otherwise have had to break (the runner on `Comman
 through `GlobalOption`, `ctx.format`, `ctx.can_prompt`, honest consoles, the `hint` & `exit_code`
 attributes). A release may ship fewer items than listed, never a breaking one.
 
-## 0.4 - output and feedback
+## 0.4 - output and feedback (delivered in 0.4.0)
 
 - `ctx.emit(records)`: one call that prints a table, plain rows or JSON by `ctx.format` (OUT-2,
   OUT-4, SUB-3)
 - State-change rows & a closing summary (OUT-5, OUT-7), the pattern pkgdx hand-rolls
-- Progress & status gates on `ctx.err.is_interactive`, so apps stop gating by hand (OUT-14, ROB-3,
-  ROB-5)
+- `status` & `progress` gate on `ctx.err.is_interactive`, so apps stop gating by hand (OUT-14,
+  ROB-3)
 - A next-step hint primitive (OUT-9)
 - `help` & `help <command>` (HELP-6, DOC-4)
-- A pager for long STDOUT on a TTY, with `less -FIRX` (OUT-19)
+- `ctx.pager()` for long STDOUT on a TTY, with `less -FIRX`; opt-in through `PAGER` on Windows,
+  where click's `more` fallback cannot show it (OUT-19)
 - Grouped failures under one header (ERR-3)
 
 ## 0.5 - configuration and environment
@@ -45,8 +46,9 @@ attributes). A release may ship fewer items than listed, never a breaking one.
 - Debug log to a file (ERR-7)
 - Typed confirmation & `--confirm=name` for severe actions (ARG-11b)
 - Third-party warnings & root-logger records through the run's STDERR console (OUT-18)
+- Hide logs on success, show them on failure (ROB-5)
 
 ## 1.0 - API freeze
 
-- Every coverage row `done` or `out`
+- Every row `done`, or owned `out`
 - The kit gains `samples=` for checks that need a run with input (ARG-1, ARG-5, SUB-4, SUB-5)

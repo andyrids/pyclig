@@ -16,16 +16,26 @@ License:
 import contextlib
 import functools
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Concatenate, NoReturn, ParamSpec, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Concatenate,
+    NoReturn,
+    ParamSpec,
+    TypeVar,
+)
 
 import click
 from rich.console import Console
 
-from pyclig import _flags, _logging, _run
+from pyclig import _flags, _logging, _output, _run
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
+
+if TYPE_CHECKING:
+    from rich.table import Table
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -120,6 +130,75 @@ class Context(click.Context):
         themselves; read it before an interactive flow of your own.
         """
         return _require_state(self).can_prompt
+
+    def emit(
+        self,
+        records: Iterable[Mapping[str, object]],
+        *,
+        table: Callable[[], "Table"] | None = None,
+        caption: str | None = None,
+    ) -> None:
+        """Print `records` to STDOUT in the run's format.
+
+        - `json`: an indented list, other values as `str()`; no caption.
+          `NaN` & infinities are not JSON: convert them first, or the run
+          fails as a bug (exit 70) rather than print what parsers reject.
+        - `plain`: TSV without a header, the first record's keys as the
+          columns; the caption goes to `info(ctx.err)`.
+        - `human`: `table()`, or a `SIMPLE_HEAD` table with a column per
+          key; the caption is set below it.
+
+        Plain cells: `None` is empty, bools are `true`/`false`, tabs &
+        newlines become one space and a missing key is empty, so `cut` &
+        `awk` see one row per record. With no records, JSON prints `[]`,
+        the others print nothing and the caption goes to `info`.
+
+        NOTE: `table` is a factory because cells often depend on other
+        fields; it also keeps `rich.table` off the fast paths.
+
+        Args:
+            records: The rows, as mappings.
+            table: Builds the human table, e.g. with aligned columns.
+            caption: A line about the rows, e.g. `3 archives, 2.1 MB`.
+        """
+        _output.emit(
+            self.out,
+            self.err,
+            fmt=self.format,
+            records=records,
+            table=table,
+            caption=caption,
+        )
+
+    @contextlib.contextmanager
+    def pager(self) -> Iterator[None]:
+        """Page what the block prints on `ctx.out`, in `human` format only.
+
+        ```python
+        with ctx.pager():
+            ctx.emit(rows, table=make_table, caption=caption)
+        ```
+
+        The page goes through `click.echo_via_pager`, so `PAGER` is
+        honoured and `less` gets `LESS=-FIRX` when `LESS` is unset. A
+        no-op in `plain` & `json`, which are for pipes; `-q` marks STDERR
+        only, so a `human` run still pages. On Windows paging is opt-in:
+        with `PAGER` blank the output prints directly, because click's
+        fallback there is `more`, which garbles UTF-8 & cannot scroll;
+        `PAGER=less` (Git for Windows ships one) pages in colour.
+
+        NOTE: Output is held until the block ends, then paged in one go.
+        If the block raises, what it printed is flushed to STDOUT unpaged.
+        `click.echo` inside the block bypasses the page and prints at once.
+
+        Yields:
+            Nothing; the pager runs when the block ends.
+        """
+        if self.format != "human" or not _output.pages_by_default():
+            yield
+            return
+        with self.out.pager(pager=_output._ClickPager(), styles=True):
+            yield
 
 
 def _require_state(ctx: click.Context) -> _run.State:
@@ -684,6 +763,13 @@ class Group(Command, click.Group):
     ) -> tuple[str | None, click.Command | None, list[str]]:
         """Resolve the subcommand; a help flag wins over an unknown name.
 
+        `help [NAME...]` shows the help of the named command, or of this
+        group, & exits 0, unless the group has a `help` command of its own.
+        It is never in `.commands`, so it is not listed under `COMMANDS:`.
+
+        NOTE: Options before `help` are parsed first, so a required root
+        option errors before `prog help` can answer.
+
         Args:
             ctx: The group's context.
             args: The remaining arguments, the command name first.
@@ -691,11 +777,47 @@ class Group(Command, click.Group):
         Returns:
             The command name, the command & the arguments after it.
         """
+        if (
+            args
+            and args[0] == "help"
+            and not ctx.resilient_parsing
+            and self.get_command(ctx, "help") is None
+        ):
+            self._help_command(ctx, args[1:])
         try:
             return super().resolve_command(ctx, args)
         except click.UsageError:
             _help_if_asked(ctx, args)
             raise
+
+    def _help_command(self, ctx: click.Context, args: list[str]) -> NoReturn:
+        """Show the help of the command `args` name, or of `ctx`, & exit 0.
+
+        NOTE: Each name resolves through `resolve_command`, so an unknown
+        one gets click's error & suggestions. A child context is built
+        without parsing, so the named command's options are not required.
+
+        Args:
+            ctx: The group's context.
+            args: The arguments after `help`; dashed ones are ignored.
+
+        Raises:
+            click.UsageError: For a name that is not a command, or a
+                name after a command that has no subcommands.
+        """
+        current = ctx
+        for name in (arg for arg in args if not arg.startswith("-")):
+            group = current.command
+            if not isinstance(group, click.Group):
+                current.fail(f"Got unexpected extra argument ({name})")
+            _, sub, _ = group.resolve_command(current, [name])
+            if sub is None:
+                current.fail(f"No such command '{name}'.")
+            current = sub.context_class(
+                sub, info_name=name, parent=current, **sub.context_settings
+            )
+        click.echo(current.get_help(), color=ctx.color)
+        ctx.exit()
 
 
 def command(
