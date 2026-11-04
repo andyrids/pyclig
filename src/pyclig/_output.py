@@ -16,13 +16,17 @@ License:
     SPDX-License-Identifier: Apache-2.0
 """
 
+import contextlib
 import re
 import traceback
-from collections.abc import Iterable
-from typing import Literal
+from collections.abc import Iterable, Iterator, Sequence
+from typing import TYPE_CHECKING, Any, Literal
 
 from rich.console import Console
 from rich.text import Text
+
+if TYPE_CHECKING:
+    from rich.progress import Progress, ProgressColumn
 
 Level = Literal["error", "warning"]
 """A `notice` level."""
@@ -248,3 +252,71 @@ def print_exception(console: Console, error: BaseException) -> None:
         )
     else:
         _plain(console, "".join(traceback.format_exception(error)).rstrip())
+
+
+@contextlib.contextmanager
+def status(console: Console, *, message: str) -> Iterator[None]:
+    """Show a spinner with `message` while the block runs, on a terminal.
+
+    A no-op when the console is not interactive: piped, dumb or quiet.
+    Lines printed through this module redraw cleanly around it.
+
+    Args:
+        console: The console to animate on, usually STDERR.
+        message: What is happening, e.g. `Fetching index`.
+
+    Yields:
+        Nothing; the spinner stops when the block ends.
+    """
+    if not console.is_interactive:
+        yield
+        return
+    with console.status(_text(message), spinner="dots"):
+        yield
+
+
+def progress(
+    console: Console,
+    *,
+    columns: Sequence["str | ProgressColumn"] = (),
+    **kwargs: Any,
+) -> "Progress":
+    """Return a Rich `Progress` that only animates on a terminal.
+
+    Disabled when the console is not interactive (piped, dumb or quiet),
+    so `add_task` & `update` still work but nothing draws. Transient by
+    default: the bars vanish when the block ends. Task descriptions are
+    never parsed as markup.
+
+    Args:
+        console: The console to animate on, usually STDERR.
+        columns: The columns, instead of description, bar, percentage &
+            time remaining. A `str` is a `TextColumn` format string, e.g.
+            `{task.description}`, rendered with markup off.
+        **kwargs: Passed to `Progress`, e.g. `transient=False`.
+
+    Returns:
+        The progress display, to use as a context manager.
+    """
+    from rich.progress import (
+        BarColumn,
+        Progress,
+        TaskProgressColumn,
+        TextColumn,
+        TimeRemainingColumn,
+    )
+
+    kwargs.setdefault("transient", True)
+    kwargs["disable"] = (
+        kwargs.get("disable", False) or not console.is_interactive
+    )
+    cols: list[ProgressColumn] = [
+        TextColumn(c, markup=False) if isinstance(c, str) else c
+        for c in columns
+    ] or [
+        TextColumn("{task.description}", markup=False),
+        BarColumn(),
+        TaskProgressColumn(),
+        TimeRemainingColumn(),
+    ]
+    return Progress(*cols, console=console, **kwargs)

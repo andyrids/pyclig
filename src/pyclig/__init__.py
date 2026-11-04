@@ -17,7 +17,16 @@ from pyclig._core import (
 )
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
-from pyclig._output import hanging, hint, info, notice, row, summary
+from pyclig._output import (
+    hanging,
+    hint,
+    info,
+    notice,
+    progress,
+    row,
+    status,
+    summary,
+)
 
 __all__: list[str] = [
     "Command",
@@ -34,8 +43,10 @@ __all__: list[str] = [
     "notice",
     "options",
     "pass_context",
+    "progress",
     "row",
     "run",
+    "status",
     "summary",
 ]
 

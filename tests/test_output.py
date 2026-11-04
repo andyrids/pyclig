@@ -253,3 +253,70 @@ def test_summary_on_stdout_stays_when_stderr_quiet() -> None:
     silence(err)
     pyclig.summary(out, message="done")
     assert buffer.getvalue() == "✓ done\n"
+
+
+def test_status_is_a_no_op_off_a_terminal() -> None:
+    """Assert `status` neither spins nor prints when not interactive."""
+    console, buffer = _console(tty=False)
+    with (
+        patch.object(console, "status") as spy,
+        pyclig.status(console, message="working"),
+    ):
+        pass
+    spy.assert_not_called()
+    assert buffer.getvalue() == ""
+
+
+def test_status_spins_on_a_terminal_with_literal_text() -> None:
+    """Assert `status` runs a dots spinner & never parses its message."""
+    console, buffer = _console(tty=True)
+    with patch.object(console, "status", wraps=console.status) as spy:
+        with pyclig.status(console, message="[/b] working\x1b[2J"):
+            pass
+    spy.assert_called_once()
+    message, kwargs = spy.call_args[0][0], spy.call_args[1]
+    assert isinstance(message, Text) and message.plain == "[/b] working[2J"
+    assert kwargs["spinner"] == "dots"
+    assert "[/b] working[2J" in buffer.getvalue()
+
+
+def test_status_is_a_no_op_when_quiet() -> None:
+    """Assert `-q` stops the spinner, even on a terminal."""
+    console, buffer = _console(tty=True)
+    silence(console)
+    with pyclig.status(console, message="working"):
+        pass
+    assert buffer.getvalue() == ""
+
+
+def test_progress_disabled_when_not_interactive() -> None:
+    """Assert a progress bar is disabled off a TTY & when quiet, always."""
+    console, _ = _console(tty=False)
+    assert pyclig.progress(console, disable=False).disable is True
+    console, _ = _console(tty=True)
+    assert pyclig.progress(console).disable is False
+    silence(console)
+    assert pyclig.progress(console).disable is True
+
+
+def test_progress_transient_by_default() -> None:
+    """Assert bars vanish on exit unless the caller keeps them."""
+    console, _ = _console(tty=True)
+    assert pyclig.progress(console).live.transient is True
+    assert pyclig.progress(console, transient=False).live.transient is False
+
+
+def test_progress_descriptions_are_not_markup() -> None:
+    """Assert `[/b]` in a task description renders instead of raising."""
+    console, buffer = _console(tty=True)
+    with pyclig.progress(console) as bar:
+        bar.add_task("[/b] step\x1b[2J", total=2)
+    assert "[/b] step" in buffer.getvalue()
+
+
+def test_progress_str_columns_are_not_markup() -> None:
+    """Assert a `str` column becomes a `TextColumn` with markup off."""
+    console, _ = _console(tty=True)
+    bar = pyclig.progress(console, columns=["{task.description}"])
+    assert len(bar.columns) == 1
+    assert bar.columns[0].markup is False
