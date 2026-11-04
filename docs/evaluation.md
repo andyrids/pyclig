@@ -349,3 +349,13 @@ keep their value as guards.
   the colour that `FORCE_COLOR` keeps outside the block.
 - Not verified this round: `less` on POSIX (the P6 record covers WSL) and tab completion through
   a real shell (the unit test covers resilient parsing).
+
+### Fixed after evaluation
+
+1. `progress` sanitises its description column & `str` columns (`PlainColumn`, `_output.py`):
+   `test_progress_descriptions_print_literally` asserts `\x1b[2J` & `\x9b2J` are gone, for both.
+   A caller's own `ProgressColumn` renders as built; the docstring & README say so.
+2. `Context.pager` docstring corrected: `-q` marks STDERR only, so a `human` run still pages.
+   Behaviour unchanged, no test.
+3. `emit` dumps JSON with `allow_nan=False`, so a NaN or infinity is a bug (exit 70) instead of
+   invalid JSON on STDOUT: `test_emit_json_refuses_nan`.
