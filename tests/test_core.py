@@ -1155,6 +1155,14 @@ def _pager_cli(body: Callable[[pyclig.Context], None]) -> pyclig.Command:
     return page
 
 
+@pytest.fixture
+def less_pager(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Name `less` as the pager with `LESS` unset, whatever the host."""
+    monkeypatch.setenv("PAGER", "less")
+    monkeypatch.delenv("LESS", raising=False)
+
+
+@pytest.mark.usefixtures("less_pager")
 def test_pager_is_a_no_op_unless_human() -> None:
     """Assert plain & JSON output never go near a pager."""
     cli = _pager_cli(lambda ctx: ctx.emit(_RECORDS))
@@ -1165,8 +1173,9 @@ def test_pager_is_a_no_op_unless_human() -> None:
     assert as_json.stdout == invoke(_emitter(_RECORDS), ["--json"]).stdout
 
 
+@pytest.mark.usefixtures("less_pager")
 def test_pager_pages_human_output_once_without_its_newline() -> None:
-    """Assert the block's console output is one page, click adding `\n`."""
+    """Assert the block's console output is one page, click adding `\\n`."""
     cli = _pager_cli(lambda ctx: ctx.emit(_RECORDS, caption="2 rows"))
     with patch("click.echo_via_pager") as spy:
         result = invoke(cli, out_tty=True)
@@ -1177,6 +1186,7 @@ def test_pager_pages_human_output_once_without_its_newline() -> None:
     assert "2 rows" in spy.call_args[0][0].splitlines()[-1]
 
 
+@pytest.mark.usefixtures("less_pager")
 def test_pager_holds_console_output_but_not_click_echo() -> None:
     """Assert `click.echo` bypasses the page, which prints at block end."""
 
@@ -1188,6 +1198,22 @@ def test_pager_holds_console_output_but_not_click_echo() -> None:
     assert result.stdout == "direct\nbuffered\n"
 
 
+@pytest.mark.usefixtures("less_pager")
+def test_pager_flushes_output_unpaged_when_the_body_raises() -> None:
+    """Assert a raise skips the pager but what was printed still prints."""
+
+    def body(ctx: pyclig.Context) -> None:
+        ctx.out.print("partial")
+        raise RuntimeError("boom")
+
+    with patch("click.echo_via_pager") as spy:
+        result = invoke(_pager_cli(body), out_tty=True)
+    spy.assert_not_called()
+    assert result.stdout == "partial\n"
+    assert result.exit_code == pyclig.ExitCode.INTERNAL
+
+
+@pytest.mark.usefixtures("less_pager")
 def test_pager_keeps_styles_for_the_pager() -> None:
     """Assert styled console output reaches the pager with its codes."""
     cli = _pager_cli(lambda ctx: pyclig.summary(ctx.out, message="done"))
@@ -1196,17 +1222,15 @@ def test_pager_keeps_styles_for_the_pager() -> None:
     assert spy.call_args[0][0] == "\x1b[32m✓\x1b[0m done"
 
 
+@pytest.mark.usefixtures("less_pager")
 def test_pager_sets_less_flags_for_the_call_when_unset(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Assert `LESS=-FIRX` applies to the pager call only, unless set."""
     seen: list[str | None] = []
     cli = _pager_cli(lambda ctx: ctx.out.print("x"))
-    with patch(
-        "click.echo_via_pager",
-        side_effect=lambda *a, **k: seen.append(os.environ.get("LESS")),
-    ):
-        monkeypatch.delenv("LESS", raising=False)
+    record = lambda *a, **k: seen.append(os.environ.get("LESS"))  # noqa: E731
+    with patch("click.echo_via_pager", side_effect=record):
         invoke(cli, out_tty=True)
         assert "LESS" not in os.environ
         monkeypatch.setenv("LESS", "-X")
@@ -1215,18 +1239,50 @@ def test_pager_sets_less_flags_for_the_call_when_unset(
 
 
 @pytest.mark.parametrize(
-    ("platform", "pager", "color"),
-    [("win32", "", False), ("win32", "less", None), ("linux", "", None)],
+    ("platform", "paged"), [("win32", False), ("linux", True)]
 )
-def test_pager_colour_is_off_for_windows_more(
+def test_pager_is_opt_in_on_windows(
+    monkeypatch: pytest.MonkeyPatch, platform: str, paged: bool
+) -> None:
+    """Assert a blank `PAGER` prints directly on Windows, pages elsewhere."""
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv("PAGER", " ")
+    cli = _pager_cli(lambda ctx: ctx.emit(_RECORDS))
+    with patch("click.echo_via_pager") as spy:
+        result = invoke(cli, out_tty=True)
+    assert spy.call_count == int(paged)
+    expected = invoke(_emitter(_RECORDS), out_tty=True).stdout
+    assert result.stdout == ("" if paged else expected)
+
+
+@pytest.mark.parametrize(
+    ("platform", "pager", "less", "color"),
+    [
+        ("win32", "less", None, True),
+        ("win32", "LESS.EXE", None, True),
+        ("win32", r'"C:\Program Files\Git\usr\bin\less.exe"', None, True),
+        ("win32", "more", None, None),
+        ("win32", "less", "-X", None),
+        ("linux", "less", None, True),
+        ("linux", "/usr/bin/less -S", None, True),
+        ("linux", "cat", None, None),
+        ("linux", " ", None, None),
+    ],
+)
+def test_pager_forces_colour_only_for_less_in_raw_mode(
     monkeypatch: pytest.MonkeyPatch,
     platform: str,
     pager: str,
+    less: str | None,
     color: bool | None,
 ) -> None:
-    """Assert colour is off only where click would page with `more`."""
+    """Assert colour is on only for `less` with pyclig's own `LESS` flags."""
     monkeypatch.setattr(sys, "platform", platform)
     monkeypatch.setenv("PAGER", pager)
+    if less is None:
+        monkeypatch.delenv("LESS", raising=False)
+    else:
+        monkeypatch.setenv("LESS", less)
     cli = _pager_cli(lambda ctx: ctx.out.print("x"))
     with patch("click.echo_via_pager") as spy:
         invoke(cli, out_tty=True)

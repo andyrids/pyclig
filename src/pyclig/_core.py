@@ -178,18 +178,21 @@ class Context(click.Context):
         ```
 
         The page goes through `click.echo_via_pager`, so `PAGER` is
-        honoured, `less` gets `LESS=-FIRX` when `LESS` is unset & Windows
-        falls back to `more` without colour. A no-op in `plain` & `json`:
-        those are for pipes, and `-q` never pages.
+        honoured and `less` gets `LESS=-FIRX` when `LESS` is unset. A
+        no-op in `plain` & `json`: those are for pipes, and `-q` never
+        pages. On Windows paging is opt-in: with `PAGER` blank the output
+        prints directly, because click's fallback there is `more`, which
+        garbles UTF-8 & cannot scroll; `PAGER=less` (Git for Windows ships
+        one) pages in colour.
 
-        NOTE: Output is held until the block ends, then paged in one go;
-        an exception in the block discards it. `click.echo` inside the
-        block bypasses the page and prints at once.
+        NOTE: Output is held until the block ends, then paged in one go.
+        If the block raises, what it printed is flushed to STDOUT unpaged.
+        `click.echo` inside the block bypasses the page and prints at once.
 
         Yields:
             Nothing; the pager runs when the block ends.
         """
-        if self.format != "human":
+        if self.format != "human" or not _output.pages_by_default():
             yield
             return
         with self.out.pager(pager=_output._ClickPager(), styles=True):

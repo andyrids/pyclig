@@ -19,9 +19,11 @@ License:
 import contextlib
 import os
 import re
+import shlex
 import sys
 import traceback
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Literal
 
 import click
@@ -395,15 +397,51 @@ def emit(
         info(err, message=caption)
 
 
+def pages_by_default() -> bool:
+    """Check whether a blank `PAGER` still pages: not on Windows.
+
+    NOTE: Click falls back to `more` there, which garbles UTF-8 & cannot
+    scroll, so `Context.pager` prints directly instead. Paging on Windows
+    is opt-in through `PAGER`.
+
+    Returns:
+        Whether `PAGER` names a pager, or the platform has a usable default.
+    """
+    return bool(
+        os.environ.get("PAGER", "").strip()
+    ) or not sys.platform.startswith("win")
+
+
+def _pager_name() -> str:
+    """Return the `PAGER` command's name, e.g. `less`, or `""` if blank.
+
+    NOTE: Split as click does, so a quoted path with spaces is one token;
+    the name is its stem, lower-cased, so `less.exe` & `LESS` match.
+
+    Returns:
+        The command name, without directory or extension.
+    """
+    try:
+        parts = shlex.split(os.environ.get("PAGER", ""))
+    except ValueError:
+        return ""
+    if not parts:
+        return ""
+    path = PureWindowsPath if sys.platform.startswith("win") else PurePosixPath
+    return path(parts[0]).stem.casefold()
+
+
 class _ClickPager(Pager):
     """Rich's pager hook, routed through `click.echo_via_pager`.
 
     NOTE: Click adds a newline after the content, so the trailing one is
     dropped. Click supplies `LESS=-R` alone, so `LESS=-FIRX` is set for
     the call when unset: quit if it fits, ignore case, raw colour, no
-    screen clear. Windows pages with `more` when `PAGER` is unset, whose
-    ANSI handling is untested, so colour is off there; elsewhere click
-    decides, keeping it for `less` in raw mode.
+    screen clear. Colour is forced on only when `PAGER` names `less` and
+    this call set `LESS`, so raw mode is certain: that keeps styles on
+    Windows, where click pages through a temp file & would strip them.
+    Otherwise click decides, so an unknown pager or a user's own `LESS`
+    never gets escapes it may not handle.
     """
 
     def show(self, content: str) -> None:
@@ -412,17 +450,12 @@ class _ClickPager(Pager):
         Args:
             content: The rendered output, styles included.
         """
-        more = (
-            sys.platform.startswith("win")
-            and not os.environ.get("PAGER", "").strip()
-        )
         unset = "LESS" not in os.environ
         if unset:
             os.environ["LESS"] = "-FIRX"
+        color = True if unset and _pager_name() == "less" else None
         try:
-            click.echo_via_pager(
-                content.rstrip("\n"), color=False if more else None
-            )
+            click.echo_via_pager(content.rstrip("\n"), color=color)
         finally:
             if unset:
                 os.environ.pop("LESS", None)
