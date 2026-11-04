@@ -19,20 +19,25 @@ License:
 import contextlib
 import re
 import traceback
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
+import click
 from rich.console import Console
 from rich.text import Text
 
 if TYPE_CHECKING:
     from rich.progress import Progress, ProgressColumn
+    from rich.table import Table
+
+    from pyclig._run import Format
 
 Level = Literal["error", "warning"]
 """A `notice` level."""
 
 _LEVEL_STYLES: dict[Level, str] = {"error": "red", "warning": "yellow"}
 _CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+_BREAKS = re.compile(r"[\t\n]+")
 _QUIET = "_pyclig_quiet"
 
 
@@ -320,3 +325,68 @@ def progress(
         TimeRemainingColumn(),
     ]
     return Progress(*cols, console=console, **kwargs)
+
+
+def _field(value: object) -> str:
+    """Return `value` as one plain cell: no `None`, `True` or line breaks."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return _BREAKS.sub(" ", _CONTROL.sub("", str(value)))
+
+
+def _table(
+    keys: Sequence[str], rows: Sequence[Mapping[str, object]]
+) -> "Table":
+    """Return the default `emit` table: `keys` head the columns."""
+    from rich import box
+    from rich.table import Table
+
+    table = Table(box=box.SIMPLE_HEAD)
+    for key in keys:
+        table.add_column(_text(key))
+    for row in rows:
+        table.add_row(*(_text(_field(row.get(key))) for key in keys))
+    return table
+
+
+def emit(
+    out: Console,
+    err: Console,
+    *,
+    fmt: "Format",
+    records: Iterable[Mapping[str, object]],
+    table: Callable[[], "Table"] | None = None,
+    caption: str | None = None,
+) -> None:
+    """Print `records` to STDOUT in the run's format; see `Context.emit`.
+
+    Args:
+        out: The STDOUT console.
+        err: The STDERR console, for a plain caption.
+        fmt: The run's format: `json`, `plain` or `human`.
+        records: The rows, as mappings; the first one's keys name the
+            plain & default-table columns.
+        table: Builds the human table instead of the default one.
+        caption: A line about the rows, e.g. `3 archives, 2.1 MB`.
+    """
+    rows = [dict(record) for record in records]
+    if fmt == "json":
+        import json
+
+        click.echo(json.dumps(rows, indent=2, default=str), file=out.file)
+        return
+    keys = list(rows[0]) if rows else []
+    if fmt == "plain":
+        for row in rows:
+            cells = (_field(row.get(key)) for key in keys)
+            click.echo("\t".join(cells), file=out.file)
+    elif rows:
+        grid = table() if table else _table(keys, rows)
+        if caption is not None:
+            grid.caption = _CONTROL.sub("", caption)
+        out.print(grid)
+        return
+    if caption is not None:
+        info(err, message=caption)

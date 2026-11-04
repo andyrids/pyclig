@@ -1,10 +1,13 @@
 """Tests for `pyclig._core` - help, `-d`, `-v` & the group runner."""
 
+import json
 import logging
 import re
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 import click
 import pytest
@@ -878,3 +881,111 @@ def test_arguments_reach_commands_as_typed(
     """Assert globs & variables are never expanded, even on Windows."""
     result = run_sample("show", "--value", value)
     assert result.stdout.splitlines() == [value]
+
+
+_RECORDS: list[dict[str, object]] = [
+    {"key": "a", "size": 1, "ok": True, "note": None},
+    {"key": "b\tc\n\nd", "size": 2, "ok": False, "note": "x"},
+]
+
+
+def _emitter(
+    records: list[dict[str, object]], **kwargs: Any
+) -> pyclig.Command:
+    """Return a command that emits `records` with `kwargs`."""
+
+    @pyclig.command("emit")
+    @pyclig.options.json_output()
+    @pyclig.options.plain()
+    @pyclig.pass_context
+    def emit(ctx: pyclig.Context, json_output: bool) -> None:
+        """Emit the records."""
+        ctx.emit(records, **kwargs)
+
+    return emit
+
+
+def test_emit_json_dumps_records_and_drops_caption() -> None:
+    """Assert `--json` prints an indented list & no caption anywhere."""
+    result = invoke(_emitter(_RECORDS, caption="2 rows"), ["--json"])
+    assert result.stdout == json.dumps(_RECORDS, indent=2) + "\n"
+    assert result.stderr == ""
+
+
+def test_emit_json_stringifies_other_values() -> None:
+    """Assert values JSON cannot encode print as `str()`, as plain does."""
+    cli = _emitter([{"path": Path("a") / "b", "day": date(2026, 1, 2)}])
+    assert json.loads(invoke(cli, ["--json"]).stdout) == [
+        {"path": str(Path("a") / "b"), "day": "2026-01-02"}
+    ]
+
+
+def test_emit_plain_is_tsv_with_the_caption_on_stderr() -> None:
+    """Assert plain is headerless TSV: blanks, lowercase bools, no breaks."""
+    result = invoke(_emitter(_RECORDS, caption="2 rows"))
+    assert result.stdout == "a\t1\ttrue\t\nb c d\t2\tfalse\tx\n"
+    assert result.stderr == "2 rows\n"
+
+
+def test_emit_plain_columns_come_from_the_first_record() -> None:
+    """Assert later records follow the first's keys, blank when missing."""
+    cli = _emitter([{"a": 1, "b": 2}, {"b": 3, "c": 4}])
+    assert invoke(cli).stdout == "1\t2\n\t3\n"
+
+
+def test_emit_plain_caption_dropped_when_quiet() -> None:
+    """Assert `-q` keeps the rows & drops the caption, which is `info`."""
+    result = invoke(_emitter(_RECORDS, caption="2 rows"), ["-q"])
+    assert result.stdout.count("\n") == 2
+    assert result.stderr == ""
+
+
+def test_emit_human_prints_a_default_table_with_caption() -> None:
+    """Assert a terminal gets a headed table, its caption below it."""
+    result = invoke(_emitter(_RECORDS, caption="2 rows"), out_tty=True)
+    lines = result.stdout.splitlines()
+    head = next(i for i, line in enumerate(lines) if "key" in line)
+    assert lines[head].split() == ["key", "size", "ok", "note"]
+    assert lines[head + 1].strip().startswith("─")
+    assert lines[head + 2].split() == ["a", "1", "true"]
+    assert lines[head + 3].split() == ["b", "c", "d", "2", "false", "x"]
+    assert lines[-1].strip() == "2 rows"
+    assert "\t" not in result.stdout
+    assert result.stderr == ""
+
+
+def test_emit_human_uses_the_table_factory() -> None:
+    """Assert `table=` builds the table, which still takes the caption."""
+
+    def table() -> Any:
+        from rich.table import Table
+
+        custom = Table("Custom")
+        custom.add_row("made")
+        return custom
+
+    cli = _emitter(_RECORDS, table=table, caption="cap")
+    result = invoke(cli, out_tty=True)
+    assert "Custom" in result.stdout
+    assert "made" in result.stdout
+    assert "key" not in result.stdout
+    assert result.stdout.splitlines()[-1].strip() == "cap"
+
+
+@pytest.mark.parametrize(
+    "cell", ["[/b]", "[red]x", ":warning:", "a\x1b[2Jb\x9b"]
+)
+def test_emit_human_prints_cells_literally(cell: str) -> None:
+    """Assert cells print markup & emoji codes as written, controls gone."""
+    result = invoke(_emitter([{cell: cell}]), out_tty=True)
+    shown = cell.replace("\x1b", "").replace("\x9b", "")
+    assert result.stdout.count(shown) == 2
+
+
+def test_emit_empty_records() -> None:
+    """Assert no records give `[]`, nothing, or the caption via `info`."""
+    assert invoke(_emitter([], caption="none"), ["--json"]).stdout == "[]\n"
+    for out_tty in (False, True):
+        result = invoke(_emitter([], caption="none"), out_tty=out_tty)
+        assert result.stdout == ""
+        assert result.stderr == "none\n"

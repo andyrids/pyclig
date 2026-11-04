@@ -16,16 +16,26 @@ License:
 import contextlib
 import functools
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
-from typing import Any, Concatenate, NoReturn, ParamSpec, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Concatenate,
+    NoReturn,
+    ParamSpec,
+    TypeVar,
+)
 
 import click
 from rich.console import Console
 
-from pyclig import _flags, _logging, _run
+from pyclig import _flags, _logging, _output, _run
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
+
+if TYPE_CHECKING:
+    from rich.table import Table
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -120,6 +130,43 @@ class Context(click.Context):
         themselves; read it before an interactive flow of your own.
         """
         return _require_state(self).can_prompt
+
+    def emit(
+        self,
+        records: Iterable[Mapping[str, object]],
+        *,
+        table: Callable[[], "Table"] | None = None,
+        caption: str | None = None,
+    ) -> None:
+        """Print `records` to STDOUT in the run's format.
+
+        - `json`: an indented list, other values as `str()`; no caption.
+        - `plain`: TSV without a header, the first record's keys as the
+          columns; the caption goes to `info(ctx.err)`.
+        - `human`: `table()`, or a `SIMPLE_HEAD` table with a column per
+          key; the caption is set below it.
+
+        Plain cells: `None` is empty, bools are `true`/`false`, tabs &
+        newlines become one space and a missing key is empty, so `cut` &
+        `awk` see one row per record. With no records, JSON prints `[]`,
+        the others print nothing and the caption goes to `info`.
+
+        NOTE: `table` is a factory because cells often depend on other
+        fields; it also keeps `rich.table` off the fast paths.
+
+        Args:
+            records: The rows, as mappings.
+            table: Builds the human table, e.g. with aligned columns.
+            caption: A line about the rows, e.g. `3 archives, 2.1 MB`.
+        """
+        _output.emit(
+            self.out,
+            self.err,
+            fmt=self.format,
+            records=records,
+            table=table,
+            caption=caption,
+        )
 
 
 def _require_state(ctx: click.Context) -> _run.State:
