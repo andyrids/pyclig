@@ -18,6 +18,7 @@ License:
 
 import re
 import traceback
+from collections.abc import Iterable
 from typing import Literal
 
 from rich.console import Console
@@ -66,41 +67,93 @@ def _plain(console: Console, line: str) -> None:
     console.print(_text(line), soft_wrap=True)
 
 
+def _head(head: Text | str) -> Text:
+    """Return `head` as `Text`: a `str` is sanitised, a `Text` is trusted."""
+    return _text(head) if isinstance(head, str) else head
+
+
+def _hanging(console: Console, *, head: Text | str, message: str) -> Text:
+    """Return `head message`, wrapped with a hanging indent under `message`.
+
+    NOTE: Wraps by hand, so wrapped lines carry no trailing padding.
+
+    Args:
+        console: The console whose width to wrap to.
+        head: The prefix or mark leading the first line, e.g. `✓`.
+        message: The text after it.
+
+    Returns:
+        The wrapped lines, joined by newlines.
+    """
+    mark = _head(head)
+    room = max(console.width - mark.cell_len - 1, 20)
+    rows = []
+    for i, line in enumerate(_text(message).wrap(console, room)):
+        line.rstrip()
+        indent = mark if i == 0 else " " * mark.cell_len
+        rows.append(Text.assemble(indent, " ", line))
+    return Text("\n").join(rows)
+
+
+def _line(console: Console, *, head: Text | str, message: str) -> Text:
+    """Return `head message` as one line: wrapped on a terminal, else not.
+
+    Args:
+        console: The console the line is for.
+        head: The prefix or mark leading the line.
+        message: The text after it.
+
+    Returns:
+        The line, with a hanging indent when the console is a terminal.
+    """
+    if console.is_terminal:
+        return _hanging(console, head=head, message=message)
+    return Text.assemble(_head(head), " ", _text(message))
+
+
 def hanging(console: Console, *, head: Text | str, message: str) -> None:
     """Print `head message`, wrapped with a hanging indent under `message`.
 
     NOTE: Wraps by hand, so wrapped lines carry no trailing padding. The
     lines print in one call, so messages from worker threads never
-    interleave.
+    interleave. A `str` head is sanitised like `message`; a `Text` head is
+    printed as given.
 
     Args:
         console: The console to print to.
         head: The prefix or mark leading the first line, e.g. `✓`.
         message: The text after it.
     """
-    head = _text(head) if isinstance(head, str) else head
-    room = max(console.width - head.cell_len - 1, 20)
-    rows = []
-    for i, line in enumerate(_text(message).wrap(console, room)):
-        line.rstrip()
-        indent = head if i == 0 else " " * head.cell_len
-        rows.append(Text.assemble(indent, " ", line))
-    console.print(Text("\n").join(rows), soft_wrap=True)
+    console.print(
+        _hanging(console, head=head, message=message), soft_wrap=True
+    )
 
 
-def notice(console: Console, *, level: Level, message: str) -> None:
+def notice(
+    console: Console,
+    *,
+    level: Level,
+    message: str,
+    items: Iterable[str] = (),
+) -> None:
     """Print a `level: message` line, its prefix bold & coloured.
+
+    `items` follow it, each indented by two spaces: the one line of a
+    grouped failure, e.g. `error: 2 files failed` over the files. Header &
+    items print in one call, so worker threads & live displays cannot
+    split them. Kept when the console is quiet; a `hint` after it carries
+    the remedy.
 
     Args:
         console: The console to print to, usually STDERR.
         level: `error` (red) or `warning` (yellow).
         message: The message.
+        items: Lines to list under the message, wrapped on a terminal.
     """
     head = Text(f"{level}:", style=f"bold {_LEVEL_STYLES[level]}")
-    if console.is_terminal:
-        hanging(console, head=head, message=message)
-    else:
-        console.print(Text.assemble(head, " ", _text(message)), soft_wrap=True)
+    rows = [_line(console, head=head, message=message)]
+    rows += [_line(console, head=" ", message=item) for item in items]
+    console.print(Text("\n").join(rows), soft_wrap=True)
 
 
 def info(console: Console, *, message: str) -> None:

@@ -3,11 +3,13 @@
 import io
 import itertools
 import threading
+from unittest.mock import patch
 
 import pytest
 from rich.console import Console
 
 import pyclig
+from pyclig._output import silence
 
 
 def _console(*, tty: bool, width: int = 40) -> tuple[Console, io.StringIO]:
@@ -99,3 +101,51 @@ def test_messages_drop_c1_controls() -> None:
     console, buffer = _console(tty=False)
     pyclig.info(console, message="path\x9b2J\x85/file")
     assert buffer.getvalue() == "path2J/file\n"
+
+
+def test_notice_items_indented_off_a_terminal() -> None:
+    """Assert grouped items follow the header, one unwrapped line each."""
+    console, buffer = _console(tty=False, width=20)
+    pyclig.notice(
+        console,
+        level="error",
+        message="2 files failed",
+        items=["a.txt: a reason too long for the width", "b.txt: bad"],
+    )
+    assert buffer.getvalue() == (
+        "error: 2 files failed\n"
+        "  a.txt: a reason too long for the width\n"
+        "  b.txt: bad\n"
+    )
+
+
+def test_notice_items_wrapped_on_a_terminal() -> None:
+    """Assert items on a TTY wrap with a hanging indent under the item."""
+    console, buffer = _console(tty=True, width=24)
+    pyclig.notice(
+        console,
+        level="error",
+        message="failed",
+        items=["one two three four five six"],
+    )
+    lines = buffer.getvalue().splitlines()
+    assert lines[0].startswith("\x1b[1;31merror:\x1b[0m failed")
+    assert lines[1:] == ["  one two three four", "  five six"]
+
+
+@pytest.mark.parametrize("item", ["[/b]", ":warning:", "a\x1b[2Jb"])
+def test_notice_items_print_literally(item: str) -> None:
+    """Assert items print markup as written & drop control codes."""
+    console, buffer = _console(tty=True)
+    pyclig.notice(console, level="warning", message="m", items=[item])
+    assert buffer.getvalue().splitlines()[1] == "  " + item.replace("\x1b", "")
+
+
+def test_notice_with_items_prints_once_and_survives_quiet() -> None:
+    """Assert a grouped notice is one print, kept when the console is quiet."""
+    console, buffer = _console(tty=True)
+    silence(console)
+    with patch.object(console, "print", wraps=console.print) as spy:
+        pyclig.notice(console, level="error", message="m", items=["a", "b"])
+    assert spy.call_count == 1
+    assert buffer.getvalue().count("\n") == 3
