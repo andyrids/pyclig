@@ -297,6 +297,15 @@ Fit reports, which stop only if they fail:
 **P4 stop:** you see the precedence-matrix test output, the root and subcommand `--help` of a
 config CLI, and the dkais fit. You confirm or override each default listed under Context.
 
+P4 result: the matrix, both `--help`s and the dkais fit passed (134 tests unmodified; flag >
+`DKAIS_DATA_DIR` > file for `process --dry-run`). Every default stood, per-command tables kept
+over a cascade. Two decisions: `--config FILE` named like the project file (e.g.
+`pyproject.toml`) selects `table` as discovery does, otherwise the file is read whole; and
+`tests/conftest.py` clears the colour & terminal variables for every test, after a developer's
+`NO_COLOR=1` failed three 0.4.0 tests. Found on the way: `prog sub --help` needed a look-ahead,
+since the root parses (and would read the files) before the subcommand's `--help` is seen; and
+click takes a callback's return as the option's value, so `GlobalOption` now returns it.
+
 P7 edits:
 
 - `README.md`: Configuration, Paths and Secrets sections; run-flag env vars; standard flags; a
