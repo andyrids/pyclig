@@ -289,7 +289,9 @@ def _apply(
         doc = _load(path)
         layers.append((path, _select(path, doc, table) if table else doc))
         logger.debug("loaded config %s", path)
-    state.config_files = tuple(path for path, _ in layers)
+    # Every file applied in the run, in order: a subcommand's adds its own
+    applied = (*state.config_files, *(path for path, _ in layers))
+    state.config_files = tuple(dict.fromkeys(applied))
     docs = [
         {k: v for k, v in doc.items() if k != PROFILES} for _, doc in layers
     ]

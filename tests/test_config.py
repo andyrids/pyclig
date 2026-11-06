@@ -650,3 +650,22 @@ def test_profile_at_a_subcommand_layers_like_the_root(dirs: Dirs) -> None:
     assert result.stdout.startswith("level=6 tags=[] region=alpha ")
     result = run(dirs, ["show", "--profile", "alpha"])
     assert result.stdout.startswith("level=5 tags=['a'] region=project ")
+
+
+def test_config_files_records_every_file_applied(
+    dirs: Dirs, tmp_path: Path
+) -> None:
+    """Assert a subcommand's `--config` adds to the files, never replaces."""
+    for file in (dirs.system, dirs.user, dirs.project):
+        file.write_text("")
+    other = tmp_path / "other.toml"
+    other.write_text("[show]\nlevel = 1\n")
+    result = run(dirs, ["show", "--config", str(other)])
+    assert result.stdout.endswith(
+        f"files={dirs.system};{dirs.user};{dirs.project};{other}\n"
+    )
+    dirs.project.write_text("[profiles.p.show]\nlevel = 5\n")
+    result = run(dirs, ["show", "--profile", "p"])
+    assert result.stdout.endswith(
+        f"files={dirs.system};{dirs.user};{dirs.project}\n"
+    )
