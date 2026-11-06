@@ -127,3 +127,30 @@ def test_foreign_handler_kept_open(
         assert records[-1].getMessage() == "after the run"
     finally:
         sample_logger.removeHandler(handler)
+
+
+def test_debug_variable_turns_on_debug_logging(run_sample: RunSample) -> None:
+    """Assert `SAMPLE_DEBUG=1` logs at `DEBUG` without `-d`."""
+    result = run_sample("log", env={"SAMPLE_DEBUG": "1"})
+    assert result.returncode == 0
+    lines = result.stderr.splitlines()
+    assert len(lines) == 4
+    assert all(PLAIN_RECORD.fullmatch(line) for line in lines)
+    assert "debug record" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "No", "OFF", " off "])
+def test_debug_variable_falsy_values_ignored(
+    sample: Group, value: str
+) -> None:
+    """Assert an empty or false-like `<PROG>_DEBUG` leaves logging alone."""
+    result = invoke(sample, ["log"], env={"TESTS_DEBUG": value})
+    assert "debug record" not in result.stderr
+    assert "warning record" in result.stderr
+
+
+def test_debug_flag_after_variable_is_a_no_op(sample: Group) -> None:
+    """Assert `-d` with `TESTS_DEBUG=1` keeps one handler & one record each."""
+    result = invoke(sample, ["-d", "log"], env={"TESTS_DEBUG": "1"})
+    assert result.stderr.count("debug record") == 1
+    assert result.stderr.count("warning record") == 1

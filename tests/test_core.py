@@ -256,6 +256,119 @@ def test_trimmed_global_option_keeps_its_attributes(traced: Group) -> None:
     assert trace_calls == [("tagged", True)]
 
 
+region_calls: list[tuple[str | None, str]] = []
+"""Every `(command, value)` the `--region` callback below was called with."""
+
+
+def _set_region(
+    ctx: click.Context, param: click.Parameter, value: str
+) -> None:
+    """Record a `--region` callback call & share the value with commands."""
+    region_calls.append((ctx.info_name, value))
+    ctx.meta["app.region"] = value
+
+
+@pyclig.group("regional", examples=["regional --region eu where"])
+@click.option(
+    "--region",
+    cls=pyclig.GlobalOption,
+    type=str,
+    default="us",
+    callback=_set_region,
+    envvar="REGIONAL_REGION",
+    help="The region to act in.",
+)
+def regional_cli() -> None:
+    """Group commands under a global option taking a value."""
+
+
+@regional_cli.command()
+@pyclig.pass_context
+def where(ctx: pyclig.Context) -> None:
+    """Print the region the callback shared."""
+    click.echo(f"region={ctx.meta.get('app.region')}")
+
+
+@pytest.fixture
+def regional() -> Group:
+    """Return the regional CLI with its callback record cleared."""
+    region_calls.clear()
+    return regional_cli
+
+
+def test_value_global_option_runs_when_given(regional: Group) -> None:
+    """Assert a value option's callback gets the value, at either position."""
+    result = invoke(regional, ["--region", "eu", "where"])
+    assert result.stdout == "region=eu\n"
+    assert region_calls == [("regional", "eu")]
+    region_calls.clear()
+    result = invoke(regional, ["where", "--region", "ap"])
+    assert result.stdout == "region=ap\n"
+    assert region_calls == [("where", "ap")]
+
+
+def test_value_global_option_never_runs_for_its_default(
+    regional: Group,
+) -> None:
+    """Assert `default=` is not "given", so the callback stays silent."""
+    result = invoke(regional, ["where"])
+    assert result.stdout == "region=None\n"
+    assert region_calls == []
+
+
+def test_value_global_option_from_env_runs_at_each_level(
+    regional: Group,
+) -> None:
+    """Assert `envvar=` counts as given, once per level."""
+    result = invoke(regional, ["where"], env={"REGIONAL_REGION": "eu"})
+    assert result.stdout == "region=eu\n"
+    assert region_calls == [("regional", "eu"), ("where", "eu")]
+
+
+def test_value_global_option_from_default_map_counts_as_given(
+    regional: Group,
+) -> None:
+    """Assert a `default_map` value runs the callback, as config will."""
+    result = CliRunner().invoke(
+        regional, ["where"], default_map={"region": "ap"}
+    )
+    assert result.stdout == "region=ap\n"
+    assert region_calls == [("regional", "ap")]
+
+
+def test_value_global_option_help(regional: Group) -> None:
+    """Assert the root shows the option's metavar & a subcommand its name."""
+    assert (
+        "--region TEXT  The region to act in."
+        in invoke(regional, ["--help"]).stdout
+    )
+    assert (
+        "--region, -d/--debug" in invoke(regional, ["where", "--help"]).stdout
+    )
+
+
+def test_global_option_is_flag_rules() -> None:
+    """Assert no `type=` means a flag & an explicit `is_flag=` wins."""
+
+    def ignore(ctx: click.Context, param: click.Parameter, value: Any) -> None:
+        pass
+
+    assert pyclig.GlobalOption(["--a"], callback=ignore).is_flag is True
+    assert pyclig.GlobalOption(["--b"], callback=ignore, type=int).is_flag is (
+        False
+    )
+    assert (
+        pyclig.GlobalOption(["--c"], callback=ignore, is_flag=False).is_flag
+        is False
+    )
+    assert (
+        pyclig.GlobalOption(
+            ["--d"], callback=ignore, type=bool, is_flag=True
+        ).is_flag
+        is True
+    )
+
+
 def test_global_option_reaches_added_command(sample: Group) -> None:
     """Assert `add_command` gives a command the group's global options."""
 

@@ -4,7 +4,8 @@ License:
     SPDX-License-Identifier: Apache-2.0
 """
 
-from pyclig import options
+from pyclig import options, paths
+from pyclig._config import Config
 from pyclig._core import (
     Command,
     Context,
@@ -30,6 +31,7 @@ from pyclig._output import (
 
 __all__: list[str] = [
     "Command",
+    "Config",
     "Context",
     "ExitCode",
     "GlobalOption",
@@ -43,6 +45,7 @@ __all__: list[str] = [
     "notice",
     "options",
     "pass_context",
+    "paths",
     "progress",
     "row",
     "run",

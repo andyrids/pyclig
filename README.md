@@ -71,6 +71,7 @@ Commands take `examples=` too: their `--help` leads with them under `EXAMPLES:`.
 | `prog cmd` needing arguments | Concise help on STDERR, exit 2 (`no_args_is_help=True`) |
 | `-v`, `--version` | `prog version` from the metadata, else `0.0.0+unknown`; an app's `-v` wins |
 | Run flags | `-d`, `-q`, `--no-color` & `--no-input`, before or after the command name |
+| `<PROG>_DEBUG`, `<PROG>_NO_COLOR` | `-d` & `--no-color` from the environment, before parsing |
 | `help`, `help cmd...` | A group's or the named command's help, exit 0; unlisted, an app's wins |
 | Subcommands | `@cli.command()` & `@cli.group()` create `pyclig.Command` & `pyclig.Group` |
 | Arguments | Reach commands as typed - globs & variables are not expanded on Windows either |
@@ -90,14 +91,22 @@ and act as soon as they are parsed - `-d` applies even when a later option is in
 | `--no-color` | No colour on either console; bold & dim stay | - |
 | `--no-input` | `confirm` & `prompt=` options fail instead of asking | `ctx.can_prompt` |
 
+`<PROG>_DEBUG=1` and `<PROG>_NO_COLOR=1` do the same from the environment, read before parsing,
+so even `-d`'s own parse-time records appear; a later `-d` or `--no-color` is a no-op. `<PROG>` is
+the package name upper-cased with `_` for every other character (`my-tool` is `MY_TOOL`). A value
+is on when set, non-empty and not `0`, `false`, `no` or `off`; bare `NO_COLOR` keeps Rich's rule,
+on whenever it is set. Neither is listed in `--help`. Run flags also read config files
+(`quiet = true`, see Configuration).
+
 A command's own option with the same spelling wins: `copy -d /tmp` reaches the app, and
 `--debug` still works there. The root's `--help` lists the run flags under `GLOBAL OPTIONS:`; a
 subcommand's names them on one line.
 
 An application declares its own with `cls=pyclig.GlobalOption` on the command whose subtree
 accepts it, usually the root group. The callback is a plain click callback. It runs only when
-the flag was given - on the command line or through `envvar=` - and may run once per level of a
-nested command line that sees it (each level reads the environment), so it must be idempotent:
+the option was given - on the command line, through `envvar=` or from a config file - never for
+its `default=`, and may run once per level of a nested command line that sees it (each level
+reads the environment), so it must be idempotent:
 
 ```python
 def _trace(ctx: click.Context, param: click.Parameter, value: bool) -> None:
@@ -110,6 +119,126 @@ def _trace(ctx: click.Context, param: click.Parameter, value: bool) -> None:
 )
 def cli() -> None: ...
 ```
+
+With `type=` (or `is_flag=False`) a `GlobalOption` takes a value, which the callback shares with
+the commands below through `ctx.meta`. A top-level key of a config file configures it
+(`region = "eu"`), which is how a setting shared by several commands is configured:
+
+```python
+def _region(ctx: click.Context, param: click.Parameter, value: str) -> None:
+    ctx.meta["app.region"] = value
+
+
+@pyclig.group("dkais")
+@click.option(
+    "--region",
+    cls=pyclig.GlobalOption,
+    type=str,
+    callback=_region,
+    help="The region.",
+)
+def cli() -> None: ...
+```
+
+## Configuration
+
+Config is opt-in: a CLI without `config=` gets no new options and reads no files.
+
+```python
+@pyclig.group(
+    "dkais", config=pyclig.Config(project=".dkais.toml", profiles=True)
+)
+def cli() -> None: ...
+```
+
+| `Config` field | Meaning | Default |
+| --- | --- | --- |
+| `name` | The config directories & the default project file | the package |
+| `project` | The project file, found from the working directory upward | `.<name>.toml` |
+| `table` | A dotted table of the project file, e.g. `tool.<name>` in `pyproject.toml` | whole |
+| `profiles` | Add `--profile NAME`; `[profiles.NAME]` outranks the main tables | `False` |
+| `dotenv` | Read `./.env` into declared `envvar=` options | `False` |
+
+The files are TOML, read into click's `default_map` before any other option, so click's own
+order gives the precedence, highest first:
+
+1. The command line
+2. The environment, via `envvar=`
+3. `./.env`, with `dotenv=True`
+4. `[profiles.NAME]` - project, then user, then system file - with `--profile NAME`
+5. The project file, nearest from the working directory upward
+6. The user file, `paths.config_dir(name)/config.toml`
+7. The system file, `paths.system_config_dir(name)/config.toml`
+8. The application's `default_map`, then `default=`
+
+Top-level keys configure the root command and a `[sub]` table its subcommand, as `default_map`
+does; they do not cascade, so a setting shared by several commands is a value `GlobalOption`
+(above) or is repeated per table. Tables merge recursively; scalars and lists are replaced. Run
+flags read config like any option (`quiet = true`), unknown keys are ignored, and `-d` logs the
+files it loaded.
+
+`--config FILE` (or `<PROG>_CONFIG`) replaces every discovered file. It is read whole unless it
+is named like the project file: `--config ../pyproject.toml` selects `table` as discovery would.
+`prog sub --config FILE` applies the file to `sub` and below. `prog --help`, `-v` and completion
+read no file, and a file that cannot be read is reported only when a command runs, so a
+broken file never hides the help.
+
+| Case | Result |
+| --- | --- |
+| No file | Nothing read; `tomllib` is not imported |
+| Bad TOML, or a found file unreadable | `error: cannot read config PATH: detail`, exit 1 |
+| `--config` missing, or a directory | Usage error, exit 2 |
+| `--profile x` in no loaded file | Usage error naming the files, exit 2 |
+| `[sub]` is not a table | `error: config: [sub] must be a table, not int`, exit 1 |
+
+### `.env`
+
+With `dotenv=True` the root reads `./.env` once, into the options that declare `envvar=` and
+found nothing in the environment. It never writes `os.environ`, so child processes see no change.
+The rules are deliberately small: `KEY=value` and `export KEY=value` lines; `#` comments and
+blank lines are skipped; an unquoted value loses a trailing `# comment` after a space; single
+or double quotes are removed; there are no escapes and no `$VAR` expansion. A key ending in a
+secret word (`_TOKEN`, `_PASSWORD`, `_API_KEY`...) is skipped, see Secrets. Any other line warns
+`.env:LINE: not KEY=VALUE, ignored` and the rest is still read.
+
+In tests, `invoke` reads no config file or `.env` unless `config_files=True`, and clears
+`<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG` and `_PROFILE`, so a developer's own settings never leak
+in; `--config` and `env={"<PROG>_CONFIG": ...}` still work.
+
+## Paths
+
+`pyclig.paths` returns the per-user and system directories, XDG everywhere but Windows, and
+creates none of them:
+
+| Function | Windows | XDG | Fallback |
+| --- | --- | --- | --- |
+| `config_dir(name)` | `%APPDATA%\name` | `$XDG_CONFIG_HOME/name` | `~/.config/name` |
+| `data_dir(name)` | `%LOCALAPPDATA%\name` | `$XDG_DATA_HOME/name` | `~/.local/share/name` |
+| `system_config_dir(name)` | `%PROGRAMDATA%\name` | first of `$XDG_CONFIG_DIRS` | `/etc/xdg/name` |
+
+A relative XDG value is ignored (`$XDG_CONFIG_DIRS` gives its first absolute entry), and macOS
+follows XDG rather than `~/Library`. The environment, platform and home are read on every call,
+so tests can patch them.
+
+## Secrets
+
+A secret belongs neither on the command line nor in an environment variable (the kit reports
+ARG-16 and ENV-15). `pyclig.options.secret("api-key")` adds `--api-key-file FILE` and hands the
+command the file's text as `api_key`, one trailing newline removed; `-` reads a piped STDIN, so a
+secret store is reached by a pipe or process substitution:
+
+```sh
+pass show prog/token | prog login --token-file -
+prog login --token-file <(pass show prog/token)
+```
+
+| Input | Command receives |
+| --- | --- |
+| Not given | `None`, or a usage error with `required=True` |
+| FILE, `/dev/fd/N`, `<(...)` | UTF-8 text, one trailing `\n` or `\r\n` removed |
+| `-`, STDIN piped | STDIN text, same rule |
+| `-`, STDIN a terminal | Usage error, exit 2 - it never blocks or echoes |
+| Empty, missing or a directory | Usage error, exit 2 |
 
 ## Errors & exit codes
 
@@ -151,8 +280,8 @@ subcommand, where the runner would ignore it.
 `ctx.out` (STDOUT) & `ctx.err` (STDERR) are Rich consoles created for each run, with markup,
 emoji codes & highlighting off. Each console tells the truth about its own stream: `is_terminal` is
 the real TTY check, so `FORCE_COLOR` means colour only - a piped console keeps its colour but
-stays one line per message, never wraps and never animates. `NO_COLOR`, `TERM=dumb` &
-`--no-color` drop colour; `TTY_COMPATIBLE=1` makes a pipe a terminal.
+stays one line per message, never wraps and never animates. `NO_COLOR`, `<PROG>_NO_COLOR`,
+`TERM=dumb` & `--no-color` drop colour; `TTY_COMPATIBLE=1` makes a pipe a terminal.
 
 `ctx.format` says what a command producing records should print: `human` on a terminal,
 otherwise `plain`; the per-command flags `--plain` (`pyclig.options.plain()`) & `--json`
@@ -200,7 +329,8 @@ built it.
 
 ## Standard flags
 
-`pyclig.options` holds the flags with standard names, each taking a `help=` override:
+`pyclig.options` holds the flags with standard names, each taking a `help=` override; the value
+flags also take `default=` and `envvar=`:
 
 | Factory | Flag | Parameter | Scope |
 | --- | --- | --- | --- |
@@ -209,6 +339,10 @@ built it.
 | `select_all()` | `-a`, `--all` | `select_all` | Per command |
 | `force()` | `-f`, `--force` | `force` | Per command |
 | `dry_run()` | `-n`, `--dry-run` | `dry_run` | Per command |
+| `output()` | `-o`, `--output FILE` | `output`, a `Path` or None | Per command |
+| `port()` | `-p`, `--port PORT` | `port`, 1 to 65535 | Per command |
+| `user()` | `-u`, `--user NAME` | `user` | Per command |
+| `secret(name)` | `--<name>-file FILE` | `<name>`, the file's text (see Secrets) | Per command |
 
 ## Prompts & confirmation
 

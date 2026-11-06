@@ -1,11 +1,13 @@
 """Tests for `pyclig.options` - the standard flags."""
 
+from pathlib import Path
+
 import click
 import pytest
 
 import pyclig
 from pyclig import Group
-from pyclig.testing import invoke
+from pyclig.testing import assert_conforms, invoke
 from tests.conftest import RunSample
 
 
@@ -100,3 +102,131 @@ def test_plain_overrides_tty_compatible(run_sample: RunSample) -> None:
     )
     result = run_sample("rows", "--plain", env={"TTY_COMPATIBLE": "1"})
     assert result.stdout == "format=plain json=False\n"
+
+
+@pyclig.group("vault")
+def vault() -> None:
+    """Read secrets from files or STDIN."""
+
+
+@vault.command()
+@pyclig.options.secret("token")
+@pyclig.options.secret("api-key", required=True, help="The API key file.")
+def login(token: str | None, api_key: str) -> None:
+    """Print the secrets read."""
+    click.echo(f"token={token!r} api_key={api_key!r}")
+
+
+def test_secret_from_file_strips_one_line_ending(tmp_path: Path) -> None:
+    """Assert a secret file's text loses one trailing newline, CRLF or LF."""
+    key = tmp_path / "key"
+    key.write_bytes(b"s3cret\r\n")
+    result = invoke(vault, ["login", "--api-key-file", str(key)])
+    assert result.stdout == "token=None api_key='s3cret'\n"
+    key.write_bytes(b"two\n\n")
+    token = tmp_path / "token"
+    token.write_text("t\n")
+    args = ["login", "--api-key-file", str(key), "--token-file", str(token)]
+    expected = f"token='t' api_key={'two' + chr(10)!r}"
+    assert invoke(vault, args).stdout.splitlines() == [expected]
+
+
+def test_secret_from_stdin(tmp_path: Path) -> None:
+    """Assert `-` reads a piped STDIN, with the same newline rule."""
+    result = invoke(vault, ["login", "--api-key-file", "-"], input="s3cret\n")
+    assert result.stdout == "token=None api_key='s3cret'\n"
+
+
+def test_secret_refuses_a_terminal_stdin() -> None:
+    """Assert `-` on a terminal is a usage error, never a blocking read."""
+    result = invoke(vault, ["login", "--api-key-file", "-"], in_tty=True)
+    assert result.exit_code == 2
+    assert "pipe" in result.stderr
+    assert "Try 'vault login --help'" in result.stderr
+
+
+def test_secret_usage_errors(tmp_path: Path) -> None:
+    """Assert missing, empty, absent & directory inputs exit 2."""
+    result = invoke(vault, ["login"])
+    assert result.exit_code == 2
+    assert "Missing option '--api-key-file'" in result.stderr
+    empty = tmp_path / "empty"
+    empty.write_text("\n")
+    result = invoke(vault, ["login", "--api-key-file", str(empty)])
+    assert result.exit_code == 2
+    assert "empty" in result.stderr
+    result = invoke(vault, ["login", "--api-key-file", str(tmp_path / "no")])
+    assert result.exit_code == 2
+    assert "does not exist" in result.stderr
+    result = invoke(vault, ["login", "--api-key-file", str(tmp_path)])
+    assert result.exit_code == 2
+    assert "is a directory" in result.stderr
+
+
+def test_secret_help() -> None:
+    """Assert the option is `--<name>-file FILE` with a default help text."""
+    text = invoke(vault, ["login", "--help"]).stdout
+    assert "--api-key-file FILE  The API key file." in text
+    assert "--token-file FILE" in text
+    assert "Read the token from FILE, or from STDIN with `-`." in text
+
+
+@cli.command()
+@pyclig.options.output(help="Where to write.")
+@pyclig.options.port(default=8080)
+@pyclig.options.user(envvar="FLAGS_USER")
+def serve(output: Path | None, port: int, user: str | None) -> None:
+    """Print the value options."""
+    click.echo(f"output={output} port={port!r} user={user!r}")
+
+
+def test_value_options_defaults_and_values() -> None:
+    """Assert `-o`, `-p` & `-u` take values with the standard long forms."""
+    result = invoke(cli, ["serve"])
+    assert result.stdout == "output=None port=8080 user=None\n"
+    result = invoke(cli, ["serve", "-o", "out.txt", "-p", "1", "-u", "bob"])
+    assert result.stdout == "output=out.txt port=1 user='bob'\n"
+    args = ["serve", "--output", "-", "--port", "65535", "--user", "ann"]
+    assert invoke(cli, args).stdout == "output=- port=65535 user='ann'\n"
+    assert invoke(cli, ["serve"], env={"FLAGS_USER": "env"}).stdout.endswith(
+        "user='env'\n"
+    )
+
+
+def test_port_range_is_checked() -> None:
+    """Assert a port outside 1-65535 is a usage error."""
+    result = invoke(cli, ["serve", "--port", "70000"])
+    assert result.exit_code == 2
+    assert "65535" in result.stderr
+    assert invoke(cli, ["serve", "-p", "0"]).exit_code == 2
+
+
+def test_value_options_help() -> None:
+    """Assert the metavars & help texts of the value options."""
+    text = invoke(cli, ["serve", "--help"]).stdout
+    assert "-o, --output FILE  Where to write." in text
+    assert "-p, --port PORT" in text
+    assert "-u, --user NAME" in text
+
+
+def test_kit_is_clean_on_every_factory() -> None:
+    """Assert `assert_conforms` is clean on a CLI using every factory."""
+
+    @pyclig.group("kit", examples=["kit every -o out.txt -p 8080"])
+    def kit() -> None:
+        """Use every standard option factory."""
+
+    @kit.command()
+    @pyclig.options.json_output()
+    @pyclig.options.plain()
+    @pyclig.options.select_all()
+    @pyclig.options.force()
+    @pyclig.options.dry_run()
+    @pyclig.options.output()
+    @pyclig.options.port()
+    @pyclig.options.user()
+    @pyclig.options.secret("token")
+    def every(**kwargs: object) -> None:
+        """Accept every standard option."""
+
+    assert_conforms(kit)

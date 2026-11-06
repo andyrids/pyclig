@@ -30,7 +30,7 @@ from typing import (
 import click
 from rich.console import Console
 
-from pyclig import _flags, _logging, _output, _run
+from pyclig import _config, _flags, _logging, _output, _run
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
 
@@ -97,6 +97,34 @@ class Context(click.Context):
         super().__init__(*args, **kwargs)
         if pyclig_state is not None:
             self.meta[_run.STATE_KEY] = pyclig_state
+
+    def invoke(self, *args: Any, **kwargs: Any) -> Any:
+        """Invoke a callback, raising a deferred config file error first.
+
+        NOTE: click calls every command & group callback through here, so
+        a `ConfigError` kept on the state surfaces before any application
+        code runs with defaults that miss the config: a group that is
+        descending to a subcommand is skipped, the first callback that
+        would run raises. `--help` & `help` at any depth exit earlier.
+
+        Args:
+            *args: The callback & its positional arguments.
+            **kwargs: The callback's keyword arguments.
+
+        Returns:
+            The callback's return value.
+        """
+        state = _run.state_of(self)
+        if state is not None and state.config_error is not None:
+            if (
+                isinstance(self.command, click.Group)
+                and self.invoked_subcommand is not None
+            ):
+                # Descending: skip this group's callback, so a `--help` or
+                # `help` at any depth below still answers with exit 0
+                return None
+            raise state.config_error
+        return super().invoke(*args, **kwargs)
 
     @property
     def out(self) -> Console:
@@ -321,6 +349,9 @@ def _prompt(
         click.UsageError: When the run cannot prompt & there is no default.
     """
     state = _run.state_of(ctx)
+    if state is not None and state.config_error is not None:
+        raise state.config_error  # never prompt for a run that will fail
+    state = _run.state_of(ctx)
     if state is not None and not state.can_prompt:
         default = click.Parameter.get_default(option, ctx)
         if default is not None and not option.value_is_missing(default):
@@ -384,6 +415,7 @@ class Command(click.Command):
         *,
         examples: Iterable[str] = (),
         errors: _run.Errors = (),
+        config: _config.Config | None = None,
         **kwargs: Any,
     ) -> None:
         """Create the command.
@@ -394,6 +426,8 @@ class Command(click.Command):
                 the options.
             errors: Expected exception types, reported without a traceback.
                 Only the root command's are read.
+            config: The configuration files to read, adding `--config` (&
+                `--profile`) as the first options. Root command only.
             **kwargs: Keyword `click.Command` arguments;
                 `options_metavar` defaults to `[options]`.
         """
@@ -401,12 +435,22 @@ class Command(click.Command):
         super().__init__(name, **kwargs)
         self.examples = tuple(examples)
         self.errors = errors
+        self.config = config
+        if config is not None:
+            self.params[:0] = _config.options(config)
         for param in self.params:
-            if isinstance(param, click.Option) and param.prompt is not None:
+            if not isinstance(param, click.Option):
+                continue
+            if param.prompt is not None:
                 gated = functools.partial(
                     _prompt, param, param.prompt_for_value
                 )
                 setattr(param, "prompt_for_value", gated)
+            if param.envvar:
+                resolve = functools.partial(
+                    _config.dotenv_value, param, param.resolve_envvar_value
+                )
+                setattr(param, "resolve_envvar_value", resolve)
 
     def get_params(self, ctx: click.Context) -> list[click.Parameter]:
         """Return the own parameters, the global options, then help.
@@ -577,6 +621,7 @@ class Command(click.Command):
         make_consoles = extra.pop("pyclig_consoles", _run.make_consoles)
         in_tty = extra.pop("pyclig_in_tty", None)
         err_tty = extra.pop("pyclig_err_tty", None)
+        discover = extra.pop("pyclig_discover", True)
         _run.configure_streams()
         out, err = make_consoles()
         prog = prog_name or self.name or "main"
@@ -589,10 +634,12 @@ class Command(click.Command):
             in_tty=_run.is_tty(sys.stdin) if in_tty is None else in_tty,
             err_tty=_run.is_tty(sys.stderr) if err_tty is None else err_tty,
             format="human" if out.is_terminal else "plain",
+            discover=discover,
         )
+        _run.apply_environment(state)
         click_main = super().main
         with _logging.scoped(package):
-            _logging.configure(package, err, debug=False)
+            _logging.configure(package, err, debug=state.debug)
             code = _run.execute(
                 lambda: click_main(
                     args,
@@ -691,23 +738,28 @@ class Group(Command, click.Group):
         return list(self.commands)
 
     def add_command(self, cmd: click.Command, name: str | None = None) -> None:
-        """Add a subcommand, rejecting one that sets `errors=`.
+        """Add a subcommand, rejecting one that sets `errors=` or `config=`.
 
         NOTE: The runner reads `errors` from the root only, so a subcommand's
-        would be ignored silently.
+        would be ignored silently; config files are read for the whole run.
 
         Args:
             cmd: The subcommand.
             name: Its name, defaulting to `cmd.name`.
 
         Raises:
-            TypeError: When `cmd` sets `errors=`.
+            TypeError: When `cmd` sets `errors=` or `config=`.
         """
-        if isinstance(cmd, Command) and cmd.errors:
-            raise TypeError(
-                f"{name or cmd.name} sets errors=, which only the root "
-                "command may do"
-            )
+        if isinstance(cmd, Command):
+            for keyword, value in (
+                ("errors", cmd.errors),
+                ("config", cmd.config),
+            ):
+                if value:
+                    raise TypeError(
+                        f"{name or cmd.name} sets {keyword}=, which only the "
+                        "root command may do"
+                    )
         super().add_command(cmd, name)
 
     def invoke(self, ctx: click.Context) -> Any:
@@ -825,6 +877,7 @@ def command(
     *,
     examples: Iterable[str] = (),
     errors: _run.Errors = (),
+    config: _config.Config | None = None,
     **kwargs: Any,
 ) -> Callable[[Callable[..., Any]], Command]:
     """Create a standalone `pyclig.Command` with `-v/--version`.
@@ -837,6 +890,8 @@ def command(
         examples: Example invocations, listed under `EXAMPLES:`.
         errors: Expected exception types, reported as `error: message` &
             exit 1 - the traceback is shown only with `-d`.
+        config: The configuration files to read, adding `--config` (&
+            `--profile` with `profiles=True`).
         **kwargs: Keyword `click.Command` arguments, e.g. `epilog`.
 
     Returns:
@@ -845,7 +900,12 @@ def command(
 
     def decorator(f: Callable[..., Any]) -> Command:
         return click.command(
-            name, cls=Command, examples=examples, errors=errors, **kwargs
+            name,
+            cls=Command,
+            examples=examples,
+            errors=errors,
+            config=config,
+            **kwargs,
         )(_versioned(f))
 
     return decorator
@@ -901,9 +961,10 @@ def run(
         err_tty=_run.is_tty(sys.stderr),
         format="human" if out.is_terminal else "plain",
     )
+    _run.apply_environment(state)
     ctx = Context(click.Command(prog), info_name=prog, pyclig_state=state)
     with _logging.scoped(state.package), ctx:
-        _logging.configure(state.package, err, debug=False)
+        _logging.configure(state.package, err, debug=state.debug)
         code = _run.execute(func, state, prog=prog)
     sys.exit(code)
 
@@ -913,6 +974,7 @@ def group(
     *,
     examples: Iterable[str] = (),
     errors: _run.Errors = (),
+    config: _config.Config | None = None,
     **kwargs: Any,
 ) -> Callable[[Callable[..., Any]], Group]:
     """Create a `pyclig.Group` with `-v/--version` from a function.
@@ -933,6 +995,8 @@ def group(
         examples: Example invocations, listed under `EXAMPLES:`.
         errors: Expected exception types, reported as `error: message` &
             exit 1 - the traceback is shown only with `-d`.
+        config: The configuration files to read, adding `--config` (&
+            `--profile` with `profiles=True`) to every command.
         **kwargs: Keyword `click.Group` arguments, e.g. `short_help` (the
             concise help summary) & `epilog`.
 
@@ -942,7 +1006,12 @@ def group(
 
     def decorator(f: Callable[..., Any]) -> Group:
         return click.group(
-            name, cls=Group, examples=examples, errors=errors, **kwargs
+            name,
+            cls=Group,
+            examples=examples,
+            errors=errors,
+            config=config,
+            **kwargs,
         )(_versioned(f))
 
     return decorator
