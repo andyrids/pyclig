@@ -17,8 +17,10 @@ other option is read, so click's own order applies:
 Top-level keys configure the root command & a `[sub]` table its
 subcommand, as `default_map` does; a shared setting is a value
 `GlobalOption`. Tables merge recursively, scalars & lists are replaced.
-`--config FILE` (or `<PROG>_CONFIG`) replaces the discovered files & is
-read whole, and `prog sub --config FILE` applies it to `sub` & below.
+`--config FILE` (or `<PROG>_CONFIG`) replaces the discovered files: `table`
+is selected from it when it is named like the project file (e.g. a
+`pyproject.toml`), otherwise it is read whole. `prog sub --config FILE`
+applies it to `sub` & below.
 `--help`, `-v` & completion read no file, and `tomllib` is imported only
 when a file exists.
 
@@ -235,13 +237,15 @@ def _apply(
         click.BadParameter: When no file defines `profile`.
     """
     name = config.name or state.package
+    project = config.project or f".{name}.toml"
     sources: Sources
     if explicit is not None:
-        sources = ((explicit, None),)
+        table = config.table if explicit.name == project else None
+        sources = ((explicit, table),)
     elif ctx.parent is not None and SOURCES_KEY in ctx.meta:
         sources = ctx.meta[SOURCES_KEY]
     elif state.discover:
-        sources = _discover(config, name)
+        sources = _discover(config, name, project)
     else:
         sources = ()
     ctx.meta[SOURCES_KEY] = sources
@@ -264,14 +268,13 @@ def _apply(
     ctx.default_map = merged
 
 
-def _discover(config: Config, name: str) -> Sources:
-    """Return the system, user & nearest project file that exist."""
+def _discover(config: Config, name: str, project: str) -> Sources:
+    """Return the system, user & nearest `project` file that exist."""
     found: list[tuple[Path, str | None]] = []
     for base in (paths.system_config_dir(name), paths.config_dir(name)):
         file = base / "config.toml"
         if file.is_file():
             found.append((file, None))
-    project = config.project or f".{name}.toml"
     cwd = Path.cwd()
     for directory in (cwd, *cwd.parents):
         file = directory / project

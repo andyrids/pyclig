@@ -447,3 +447,31 @@ def test_help_version_and_completion_read_no_file(
     result = run_script("show", env={})
     assert result.returncode == 1
     assert "error: cannot read config" in result.stderr
+
+
+def test_config_option_named_like_the_project_file_selects_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert `--config pyproject.toml` reads `table=`, another file whole."""
+
+    @pyclig.command(
+        "tool",
+        config=pyclig.Config(
+            name="tool", project="pyproject.toml", table="tool.demo"
+        ),
+    )
+    @click.option("--level", type=int, default=0)
+    def tool(level: int) -> None:
+        """Print `--level`."""
+        click.echo(f"level={level}")
+
+    monkeypatch.chdir(tmp_path)
+    named = tmp_path / "elsewhere" / "pyproject.toml"
+    named.parent.mkdir()
+    named.write_text("level = 9\n[tool.demo]\nlevel = 4\n")
+    assert invoke(tool, ["--config", str(named)]).stdout == "level=4\n"
+    named.write_text("level = 9\n[tool.other]\nlevel = 4\n")
+    assert invoke(tool, ["--config", str(named)]).stdout == "level=0\n"
+    whole = tmp_path / "other.toml"
+    whole.write_text("level = 9\n[tool.demo]\nlevel = 4\n")
+    assert invoke(tool, ["--config", str(whole)]).stdout == "level=9\n"
