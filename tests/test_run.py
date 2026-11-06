@@ -423,3 +423,71 @@ def test_run_logs_warnings(capsys: pytest.CaptureFixture[str]) -> None:
         return 0
 
     assert _run_hook(hook, capsys) == (0, "warning: config is stale\n")
+
+
+def test_env_prefix_normalises_package() -> None:
+    """Assert `State.env_prefix` upper-cases the package, `_` for `-` & `.`."""
+    out, err = _run.make_consoles()
+    assert _run.State(out, err, "my-pkg.x").env_prefix == "MY_PKG_X"
+    assert _run.State(out, err, "dkais").env_prefix == "DKAIS"
+
+
+def test_no_color_variable_removes_colour(run_sample: RunSample) -> None:
+    """Assert `SAMPLE_NO_COLOR` drops colour, even when styling is forced."""
+    result = run_sample(
+        "fail",
+        "--kind",
+        "mapped",
+        env={"FORCE_COLOR": "1", "SAMPLE_NO_COLOR": "1"},
+    )
+    assert "\x1b[1;31m" not in result.stderr
+    assert "\x1b[1merror:" in result.stderr
+
+
+@pytest.mark.parametrize("value", ["", "0", "false", "No", "OFF", " off "])
+def test_no_color_variable_falsy_values_ignored(
+    sample: Group, value: str
+) -> None:
+    """Assert an empty or false-like `<PROG>_NO_COLOR` keeps colour."""
+    result = invoke(
+        sample,
+        ["fail", "--kind", "mapped"],
+        err_tty=True,
+        color=True,
+        env={"TESTS_NO_COLOR": value},
+    )
+    assert "\x1b[1;31merror:" in result.stderr
+
+
+def test_run_honours_debug_variable(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert `pyclig.run` logs at `DEBUG` under `TESTS_DEBUG=1`."""
+
+    def hook() -> int:
+        logging.getLogger("tests").debug("hook debug")
+        return 0
+
+    monkeypatch.setenv("TESTS_DEBUG", "1")
+    code, stderr = _run_hook(hook, capsys)
+    assert code == 0
+    assert "hook debug" in stderr
+
+
+def test_run_honours_no_color_variable(
+    capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert `pyclig.run` drops colour under `TESTS_NO_COLOR=1`."""
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    code, stderr = _run_hook(
+        lambda: _raise(_HookError("bad config")), capsys, errors=(_HookError,)
+    )
+    assert code == 1
+    assert "\x1b[1;31merror:" in stderr
+    monkeypatch.setenv("TESTS_NO_COLOR", "1")
+    code, stderr = _run_hook(
+        lambda: _raise(_HookError("bad config")), capsys, errors=(_HookError,)
+    )
+    assert code == 1
+    assert "\x1b[1;31m" not in stderr
+    assert "\x1b[1merror:" in stderr

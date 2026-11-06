@@ -30,6 +30,7 @@ from typing import IO, Any
 from click.testing import CliRunner, Result
 from rich.console import Console
 
+from pyclig import _run
 from pyclig._conformance import Finding, assert_conforms, check
 from pyclig._core import Command
 
@@ -43,6 +44,9 @@ _CLEARED = (
     "TTY_INTERACTIVE",
 )
 """Environment variables that change Rich's output, unset by default."""
+
+_PREFIXED = ("DEBUG", "NO_COLOR", "CONFIG", "PROFILE")
+"""The `<PROG>_` variables a run reads, unset by default."""
 
 
 def invoke(
@@ -61,8 +65,10 @@ def invoke(
     """Run `cli` in-process, as if the standard streams were the given ones.
 
     NOTE: Live displays only animate with `interactive`, so output stays
-    deterministic by default. The application logger is restored when the
-    run ends.
+    deterministic by default. The variables that change Rich's output &
+    the CLI's own `<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG` & `_PROFILE` are
+    unset unless `env` sets them. The application logger is restored when
+    the run ends.
 
     Args:
         cli: The CLI - a `pyclig.Group` or a standalone `pyclig.Command`.
@@ -102,7 +108,11 @@ def invoke(
         )
         return out, err
 
+    # The same package as `Command.main` resolves, given click's prog name
+    package = _run.package_of(cli.callback, default=cli.name or "root")
+    prefix = _run.prefix_of(package)
     environ: dict[str, str | None] = dict.fromkeys(_CLEARED)
+    environ.update(dict.fromkeys(f"{prefix}_{var}" for var in _PREFIXED))
     environ.update(env or {})
     return CliRunner().invoke(
         cli,

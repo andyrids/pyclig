@@ -590,9 +590,10 @@ class Command(click.Command):
             err_tty=_run.is_tty(sys.stderr) if err_tty is None else err_tty,
             format="human" if out.is_terminal else "plain",
         )
+        _run.apply_environment(state)
         click_main = super().main
         with _logging.scoped(package):
-            _logging.configure(package, err, debug=False)
+            _logging.configure(package, err, debug=state.debug)
             code = _run.execute(
                 lambda: click_main(
                     args,
@@ -901,9 +902,10 @@ def run(
         err_tty=_run.is_tty(sys.stderr),
         format="human" if out.is_terminal else "plain",
     )
+    _run.apply_environment(state)
     ctx = Context(click.Command(prog), info_name=prog, pyclig_state=state)
     with _logging.scoped(state.package), ctx:
-        _logging.configure(state.package, err, debug=False)
+        _logging.configure(state.package, err, debug=state.debug)
         code = _run.execute(func, state, prog=prog)
     sys.exit(code)
 
