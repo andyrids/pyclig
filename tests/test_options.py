@@ -7,7 +7,7 @@ import pytest
 
 import pyclig
 from pyclig import Group
-from pyclig.testing import invoke
+from pyclig.testing import assert_conforms, invoke
 from tests.conftest import RunSample
 
 
@@ -169,3 +169,64 @@ def test_secret_help() -> None:
     assert "--api-key-file FILE  The API key file." in text
     assert "--token-file FILE" in text
     assert "Read the token from FILE, or from STDIN with `-`." in text
+
+
+@cli.command()
+@pyclig.options.output(help="Where to write.")
+@pyclig.options.port(default=8080)
+@pyclig.options.user(envvar="FLAGS_USER")
+def serve(output: Path | None, port: int, user: str | None) -> None:
+    """Print the value options."""
+    click.echo(f"output={output} port={port!r} user={user!r}")
+
+
+def test_value_options_defaults_and_values() -> None:
+    """Assert `-o`, `-p` & `-u` take values with the standard long forms."""
+    result = invoke(cli, ["serve"])
+    assert result.stdout == "output=None port=8080 user=None\n"
+    result = invoke(cli, ["serve", "-o", "out.txt", "-p", "1", "-u", "bob"])
+    assert result.stdout == "output=out.txt port=1 user='bob'\n"
+    args = ["serve", "--output", "-", "--port", "65535", "--user", "ann"]
+    assert invoke(cli, args).stdout == "output=- port=65535 user='ann'\n"
+    assert invoke(cli, ["serve"], env={"FLAGS_USER": "env"}).stdout.endswith(
+        "user='env'\n"
+    )
+
+
+def test_port_range_is_checked() -> None:
+    """Assert a port outside 1-65535 is a usage error."""
+    result = invoke(cli, ["serve", "--port", "70000"])
+    assert result.exit_code == 2
+    assert "65535" in result.stderr
+    assert invoke(cli, ["serve", "-p", "0"]).exit_code == 2
+
+
+def test_value_options_help() -> None:
+    """Assert the metavars & help texts of the value options."""
+    text = invoke(cli, ["serve", "--help"]).stdout
+    assert "-o, --output FILE  Where to write." in text
+    assert "-p, --port PORT" in text
+    assert "-u, --user NAME" in text
+
+
+def test_kit_is_clean_on_every_factory() -> None:
+    """Assert `assert_conforms` is clean on a CLI using every factory."""
+
+    @pyclig.group("kit", examples=["kit every -o out.txt -p 8080"])
+    def kit() -> None:
+        """Use every standard option factory."""
+
+    @kit.command()
+    @pyclig.options.json_output()
+    @pyclig.options.plain()
+    @pyclig.options.select_all()
+    @pyclig.options.force()
+    @pyclig.options.dry_run()
+    @pyclig.options.output()
+    @pyclig.options.port()
+    @pyclig.options.user()
+    @pyclig.options.secret("token")
+    def every(**kwargs: object) -> None:
+        """Accept every standard option."""
+
+    assert_conforms(kit)

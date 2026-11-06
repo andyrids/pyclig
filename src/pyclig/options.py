@@ -11,12 +11,17 @@ the flag in the application's own terms.
 | `force()`       | `-f`, `--force`   | `force`       |              |
 | `dry_run()`     | `-n`, `--dry-run` | `dry_run`     |              |
 | `secret(name)`  | `--<name>-file`   | `<name>`      |              |
+| `output()`      | `-o`, `--output`  | `output`      |              |
+| `port()`        | `-p`, `--port`    | `port`        |              |
+| `user()`        | `-u`, `--user`    | `user`        |              |
 
 The format flags go on the commands that produce records, so help never
 advertises a flag a command ignores. `--json` wins over `--plain` in any
 order. `secret("api-key")` adds `--api-key-file FILE` & hands the command
 the file's text (`-` reads a piped STDIN), so a secret never sits on the
 command line or in the environment.
+`output()`, `port()` & `user()` take a value with the standard short
+flag, `-o`, `-p` & `-u`; each accepts `help=`, `default=` & `envvar=`.
 
 ```python
 @cli.command()
@@ -211,4 +216,85 @@ def secret(
         callback=_read_secret,
         metavar="FILE",
         help=help or f"Read the {name} from FILE, or from STDIN with `-`.",
+    )
+
+
+def output(
+    *,
+    help: str = "Write to FILE instead of STDOUT; `-` is STDOUT.",  # noqa: A002 - click's own keyword
+    default: Any = None,
+    envvar: str | None = None,
+) -> Callable[[FC], FC]:
+    """Add `-o/--output FILE`, passed to the command as a `Path` or None.
+
+    Args:
+        help: The option's help text.
+        default: The default path.
+        envvar: An environment variable supplying the value.
+
+    Returns:
+        The option decorator.
+    """
+    return click.option(
+        "-o",
+        "--output",
+        type=click.Path(dir_okay=False, allow_dash=True, path_type=Path),
+        default=default,
+        envvar=envvar,
+        metavar="FILE",
+        help=help,
+    )
+
+
+def port(
+    *,
+    help: str = "The port to use.",  # noqa: A002 - click's own keyword
+    default: Any = None,
+    envvar: str | None = None,
+) -> Callable[[FC], FC]:
+    """Add `-p/--port PORT`, an integer from 1 to 65535, as `port`.
+
+    Args:
+        help: The option's help text.
+        default: The default port.
+        envvar: An environment variable supplying the value.
+
+    Returns:
+        The option decorator.
+    """
+    return click.option(
+        "-p",
+        "--port",
+        type=click.IntRange(1, 65535),
+        default=default,
+        envvar=envvar,
+        metavar="PORT",
+        help=help,
+    )
+
+
+def user(
+    *,
+    help: str = "The user name.",  # noqa: A002 - click's own keyword
+    default: Any = None,
+    envvar: str | None = None,
+) -> Callable[[FC], FC]:
+    """Add `-u/--user NAME`, passed to the command as `user`.
+
+    Args:
+        help: The option's help text.
+        default: The default user.
+        envvar: An environment variable supplying the value.
+
+    Returns:
+        The option decorator.
+    """
+    return click.option(
+        "-u",
+        "--user",
+        type=str,
+        default=default,
+        envvar=envvar,
+        metavar="NAME",
+        help=help,
     )
