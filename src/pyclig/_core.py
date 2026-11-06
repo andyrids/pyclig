@@ -103,8 +103,9 @@ class Context(click.Context):
 
         NOTE: click calls every command & group callback through here, so
         a `ConfigError` kept on the state surfaces before any application
-        code runs with defaults that miss the config. `--help`, `help sub`
-        & `-v` exit earlier, in parsing & command resolution.
+        code runs with defaults that miss the config: a group that is
+        descending to a subcommand is skipped, the first callback that
+        would run raises. `--help` & `help` at any depth exit earlier.
 
         Args:
             *args: The callback & its positional arguments.
@@ -115,6 +116,13 @@ class Context(click.Context):
         """
         state = _run.state_of(self)
         if state is not None and state.config_error is not None:
+            if (
+                isinstance(self.command, click.Group)
+                and self.invoked_subcommand is not None
+            ):
+                # Descending: skip this group's callback, so a `--help` or
+                # `help` at any depth below still answers with exit 0
+                return None
             raise state.config_error
         return super().invoke(*args, **kwargs)
 
@@ -340,6 +348,9 @@ def _prompt(
     Raises:
         click.UsageError: When the run cannot prompt & there is no default.
     """
+    state = _run.state_of(ctx)
+    if state is not None and state.config_error is not None:
+        raise state.config_error  # never prompt for a run that will fail
     state = _run.state_of(ctx)
     if state is not None and not state.can_prompt:
         default = click.Parameter.get_default(option, ctx)
@@ -760,20 +771,6 @@ class Group(Command, click.Group):
         Returns:
             The subcommand's return value.
         """
-        state = _run.state_of(ctx)
-        if (
-            state is not None
-            and state.config_error is not None
-            and not ctx.resilient_parsing
-        ):
-            # Let `help sub` & `sub --help` answer first (they exit here),
-            # then fail before this group's own callback runs
-            args = [*getattr(ctx, "_protected_args", ()), *ctx.args]
-            if args:
-                name, cmd, rest = self.resolve_command(ctx, args)
-                if cmd is not None:
-                    cmd.make_context(name, rest, parent=ctx)
-            raise state.config_error
         result = super().invoke(ctx)
         if ctx.invoked_subcommand is None:
             click.echo(self.get_concise_help(ctx))

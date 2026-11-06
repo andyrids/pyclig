@@ -599,6 +599,7 @@ def test_help_as_a_value_does_not_skip_config(
         ["--config", "BROKEN", "--help"],
         ["--help", "--config", "BROKEN"],
         ["show", "--help"],
+        ["nested", "leaf", "--help"],
         ["help", "show"],
         ["help"],
         ["-v"],
@@ -608,6 +609,7 @@ def test_help_as_a_value_does_not_skip_config(
         "config-then-help",
         "help-then-config",
         "sub-help",
+        "nested-help",
         "help-cmd",
         "help-cmd-root",
         "version",
@@ -687,6 +689,13 @@ def go() -> None:
     click.echo("went")
 
 
+@tracked.command()
+@click.option("--who", prompt="Who")
+def ask(who: str) -> None:
+    """Print the answer."""
+    click.echo(f"who={who}")
+
+
 def test_config_error_precedes_every_callback(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -700,6 +709,17 @@ def test_config_error_precedes_every_callback(
     assert root_runs == []
     for args in (["help", "go"], ["go", "--help"], ["--help"]):
         assert invoke(tracked, args, config_files=True).exit_code == 0, args
+    assert root_runs == []
+    result = invoke(
+        tracked,
+        ["ask"],
+        config_files=True,
+        in_tty=True,
+        err_tty=True,
+        input="x\n",
+    )
+    assert result.exit_code == 1
+    assert "Who" not in result.output
     assert root_runs == []
     (tmp_path / ".tracked.toml").write_text("")
     assert invoke(tracked, ["go"], config_files=True).stdout == "went\n"
