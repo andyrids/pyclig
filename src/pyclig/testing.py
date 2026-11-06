@@ -61,6 +61,7 @@ def invoke(
     width: int = 80,
     env: Mapping[str, str | None] | None = None,
     input: str | bytes | IO[Any] | None = None,  # noqa: A002 - click's own keyword
+    config_files: bool = False,
 ) -> Result:
     """Run `cli` in-process, as if the standard streams were the given ones.
 
@@ -86,6 +87,10 @@ def invoke(
         env: Environment variables to set, or unset with None. Overrides
             the cleared defaults.
         input: STDIN's content, e.g. a prompt's answer.
+        config_files: Search for the CLI's config files, which a test
+            provides through `env` (`APPDATA`, `XDG_CONFIG_HOME`...) & the
+            working directory. Off by default, so the developer's own files
+            never leak in; `--config` & `<PROG>_CONFIG` work regardless.
 
     Returns:
         The click result - `exit_code`, `stdout`, `stderr` & `output`.
@@ -123,4 +128,5 @@ def invoke(
         pyclig_consoles=consoles,
         pyclig_in_tty=in_tty,
         pyclig_err_tty=err_tty,
+        pyclig_discover=config_files,
     )

@@ -5,6 +5,7 @@ License:
 """
 
 from pyclig import options, paths
+from pyclig._config import Config
 from pyclig._core import (
     Command,
     Context,
@@ -30,6 +31,7 @@ from pyclig._output import (
 
 __all__: list[str] = [
     "Command",
+    "Config",
     "Context",
     "ExitCode",
     "GlobalOption",

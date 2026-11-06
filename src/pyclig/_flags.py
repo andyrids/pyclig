@@ -67,7 +67,9 @@ class GlobalOption(click.Option):
 
         def when_given(
             ctx: click.Context, param: click.Parameter, value: Any
-        ) -> None:
+        ) -> Any:
+            # The return value becomes the parameter's value in click: keep
+            # it, so `handle_parse_result` can hand it to subclasses.
             if is_flag:
                 given = bool(value)
             else:
@@ -75,6 +77,7 @@ class GlobalOption(click.Option):
                 given = value is not None and source is not _DEFAULT
             if given:
                 callback(ctx, param, value)
+            return value
 
         super().__init__(
             param_decls,

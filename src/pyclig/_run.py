@@ -33,6 +33,7 @@ import re
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, TextIO
 
 import click
@@ -76,6 +77,9 @@ class State:
             the real `isatty`, which `FORCE_COLOR` does not change.
         format: The STDOUT format: `human` on a terminal, else `plain`,
             unless `--plain` or `--json` says otherwise.
+        discover: Whether config files are searched for; `--config` & the
+            `<PROG>_CONFIG` file are read regardless.
+        config_files: The config files read, lowest precedence first.
     """
 
     out: Console
@@ -88,6 +92,8 @@ class State:
     in_tty: bool = False
     err_tty: bool = False
     format: Format = "plain"
+    discover: bool = True
+    config_files: tuple[Path, ...] = ()
 
     @property
     def can_prompt(self) -> bool:
