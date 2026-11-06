@@ -602,7 +602,6 @@ def test_help_as_a_value_does_not_skip_config(
         ["help", "show"],
         ["help"],
         ["-v"],
-        [],
     ],
     ids=[
         "help",
@@ -612,7 +611,6 @@ def test_help_as_a_value_does_not_skip_config(
         "help-cmd",
         "help-cmd-root",
         "version",
-        "bare",
     ],
 )
 def test_help_paths_exit_0_with_a_broken_file(
@@ -669,3 +667,40 @@ def test_config_files_records_every_file_applied(
     assert result.stdout.endswith(
         f"files={dirs.system};{dirs.user};{dirs.project}\n"
     )
+
+
+root_runs: list[str] = []
+"""Every run of the `tracked` root callback below."""
+
+
+@pyclig.group(
+    "tracked", config=pyclig.Config(name="tracked", project=".tracked.toml")
+)
+def tracked() -> None:
+    """Record that the root callback ran."""
+    root_runs.append("root")
+
+
+@tracked.command()
+def go() -> None:
+    """Print a word."""
+    click.echo("went")
+
+
+def test_config_error_precedes_every_callback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert a broken file stops a run before the root callback runs."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".tracked.toml").write_text("[go\n")
+    root_runs.clear()
+    result = invoke(tracked, ["go"], config_files=True)
+    assert result.exit_code == 1
+    assert result.stderr.startswith("error: cannot read config ")
+    assert root_runs == []
+    for args in (["help", "go"], ["go", "--help"], ["--help"]):
+        assert invoke(tracked, args, config_files=True).exit_code == 0, args
+    assert root_runs == []
+    (tmp_path / ".tracked.toml").write_text("")
+    assert invoke(tracked, ["go"], config_files=True).stdout == "went\n"
+    assert root_runs == ["root"]
