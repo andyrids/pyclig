@@ -306,6 +306,12 @@ over a cascade. Two decisions: `--config FILE` named like the project file (e.g.
 since the root parses (and would read the files) before the subcommand's `--help` is seen; and
 click takes a callback's return as the option's value, so `GlobalOption` now returns it.
 
+Fixed after evaluation: the help look-ahead went. Config always loads (not under completion), and
+a `ConfigError` is kept on the `State` and raised when a command is invoked, so `--help` in any
+position, `help sub` and `-v` exit 0 on a broken file while a run still exits 1; `sub --help` may
+therefore read the files, where the table above says none. A sub-level `--profile` now layers
+like a root one, and `config_files` records every file applied.
+
 P7 edits:
 
 - `README.md`: Configuration, Paths and Secrets sections; run-flag env vars; standard flags; a

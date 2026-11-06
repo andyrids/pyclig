@@ -179,8 +179,9 @@ files it loaded.
 
 `--config FILE` (or `<PROG>_CONFIG`) replaces every discovered file. It is read whole unless it
 is named like the project file: `--config ../pyproject.toml` selects `table` as discovery would.
-`prog sub --config FILE` applies the file to `sub` and below. `--help`, `-v` and completion read
-no file, so a broken file never hides the help.
+`prog sub --config FILE` applies the file to `sub` and below. `prog --help`, `-v` and completion
+read no file, and a file that cannot be read is reported only when a command runs, so a
+broken file never hides the help.
 
 | Case | Result |
 | --- | --- |

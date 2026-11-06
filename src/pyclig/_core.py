@@ -630,7 +630,9 @@ class Command(click.Command):
         NOTE: click would print a blank line, report "Aborted!" or exit
         silently. A group's `super().invoke` is `click.Group.invoke`, so one
         translation covers groups & commands, and an error translated by a
-        subcommand passes the outer levels untouched.
+        subcommand passes the outer levels untouched. A config file error
+        kept on the state is raised here, when a command (not a group,
+        which still resolves `help` & prints concise help) is about to run.
 
         Args:
             ctx: The command's context.
@@ -641,7 +643,15 @@ class Command(click.Command):
         Raises:
             Interrupted: On Ctrl-C.
             Escaped: Carrying an `EOFError` or a pipe `OSError`.
+            click.ClickException: A deferred config file error.
         """
+        state = _run.state_of(ctx)
+        if (
+            state is not None
+            and state.config_error is not None
+            and not isinstance(self, click.Group)
+        ):
+            raise state.config_error
         try:
             return super().invoke(ctx)
         except KeyboardInterrupt as error:

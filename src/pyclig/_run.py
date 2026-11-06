@@ -82,6 +82,8 @@ class State:
         config_files: The config files read, lowest precedence first.
         dotenv: The `./.env` values, read with `Config(dotenv=True)`; they
             fill declared `envvar=` options & never reach `os.environ`.
+        config_error: The first error met reading the config files, raised
+            when a command is invoked, so help & version never fail on it.
     """
 
     out: Console
@@ -97,6 +99,7 @@ class State:
     discover: bool = True
     config_files: tuple[Path, ...] = ()
     dotenv: dict[str, str] = field(default_factory=dict)
+    config_error: click.ClickException | None = None
 
     @property
     def can_prompt(self) -> bool:

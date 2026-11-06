@@ -410,7 +410,6 @@ if __name__ == "__main__":
     [
         (["--help"], {}),
         (["-v"], {}),
-        (["show", "--help"], {}),
         (
             [],
             {
@@ -420,7 +419,7 @@ if __name__ == "__main__":
             },
         ),
     ],
-    ids=["help", "version", "sub-help", "completion"],
+    ids=["help", "version", "completion"],
 )
 def test_help_version_and_completion_read_no_file(
     tmp_path: Path, args: list[str], env: dict[str, str]
@@ -577,3 +576,61 @@ def test_secret_pattern_is_shared_with_the_kit() -> None:
     assert _conformance._SECRET is _config._SECRET
     assert _config._SECRET.search("DOT_TOKEN")
     assert not _config._SECRET.search("DOT_TOKEN_FILE")
+
+
+def test_help_as_a_value_does_not_skip_config(
+    dirs: Dirs, tmp_path: Path
+) -> None:
+    """Assert `--help` as an option's value is no help request."""
+    dirs.project.write_text("[show]\nlevel = 4\n")
+    result = run(dirs, ["show", "--tag", "--help"])
+    assert result.stdout.startswith("level=4 tags=['--help'] ")
+    assert result.stdout.endswith(f"files={dirs.project}\n")
+    other = tmp_path / "other.toml"
+    other.write_text("[show]\nlevel = 1\n")
+    result = run(dirs, ["--config", str(other), "show", "--tag", "--help"])
+    assert result.stdout.startswith("level=1 tags=['--help'] ")
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        ["--help"],
+        ["--config", "BROKEN", "--help"],
+        ["--help", "--config", "BROKEN"],
+        ["show", "--help"],
+        ["help", "show"],
+        ["help"],
+        ["-v"],
+        [],
+    ],
+    ids=[
+        "help",
+        "config-then-help",
+        "help-then-config",
+        "sub-help",
+        "help-cmd",
+        "help-cmd-root",
+        "version",
+        "bare",
+    ],
+)
+def test_help_paths_exit_0_with_a_broken_file(
+    dirs: Dirs, tmp_path: Path, args: list[str]
+) -> None:
+    """Assert every help path exits 0 with a broken file; a run exits 1."""
+    broken = tmp_path / "broken.toml"
+    broken.write_text("[show\n")
+    dirs.project.write_text("[show\n")
+    args = [str(broken) if a == "BROKEN" else a for a in args]
+    result = run(dirs, args)
+    assert result.exit_code == 0, result.stderr
+    assert "cannot read config" not in result.stderr
+    result = run(dirs, ["show"])
+    assert result.exit_code == 1
+    assert result.stderr.startswith(
+        f"error: cannot read config {dirs.project}: "
+    )
+    result = run(dirs, ["--config", str(broken), "show"])
+    assert result.exit_code == 1
+    assert result.stderr.startswith(f"error: cannot read config {broken}: ")

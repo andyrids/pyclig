@@ -21,10 +21,11 @@ subcommand, as `default_map` does; a shared setting is a value
 is selected from it when it is named like the project file (e.g. a
 `pyproject.toml`), otherwise it is read whole. `prog sub --config FILE`
 applies it to `sub` & below.
-`--help`, `-v` & completion read no file, and `tomllib` is imported only
-when a file exists. With `dotenv=True`, `./.env` fills declared `envvar=`
-options the environment left empty (`read_dotenv`, `dotenv_value`): below
-the environment, above every file.
+`prog --help`, `-v` & completion read no file, `tomllib` is imported only
+when a file exists, and a file that cannot be read fails the run only when
+a command is invoked, never the help. With `dotenv=True`, `./.env` fills
+declared `envvar=` options the environment left empty (`read_dotenv`,
+`dotenv_value`): below the environment, above every file.
 
 License:
     SPDX-License-Identifier: Apache-2.0
@@ -176,9 +177,10 @@ class ConfigOption(_PrefixedOption):
     for every parameter whether given or not, so discovery happens at the
     root even without `--config`. A subcommand only acts on a `--config`
     or `--profile` given at its level; the rest it inherits through
-    `default_map`. Nothing is read under `resilient_parsing` (completion),
-    nor when a help flag is still among the arguments, so `prog sub --help`
-    works with a broken config file, as `prog --help` does.
+    `default_map`. Nothing is read under `resilient_parsing` (completion).
+    A `ConfigError` is kept on the run's `State` & raised when a command
+    is invoked, so `--help` in any position, `help sub` & `-v` exit 0 with
+    a broken file; a profile that no file defines is a usage error at once.
     """
 
     suffix = "CONFIG"
@@ -213,18 +215,26 @@ class ConfigOption(_PrefixedOption):
         """
         value, args = super().handle_parse_result(ctx, opts, args)
         state = _run.state_of(ctx)
-        help_ahead = not set(ctx.help_option_names).isdisjoint(args)
-        if ctx.resilient_parsing or state is None or help_ahead:
+        if ctx.resilient_parsing or state is None:
             return value, args
-        if ctx.parent is None and self.config.dotenv and state.discover:
-            state.dotenv = read_dotenv(
-                Path(".env"), logging.getLogger(state.package)
-            )
         explicit = value if isinstance(value, Path) else None
         profile = _profile(ctx, opts)
-        if ctx.parent is None or explicit is not None or profile is not None:
-            _apply(ctx, state, self.config, explicit, profile)
-        _check_shape(ctx)
+        try:
+            if ctx.parent is None and self.config.dotenv and state.discover:
+                state.dotenv = read_dotenv(
+                    Path(".env"), logging.getLogger(state.package)
+                )
+            if (
+                ctx.parent is None
+                or explicit is not None
+                or profile is not None
+            ):
+                _apply(ctx, state, self.config, explicit, profile)
+            _check_shape(ctx)
+        except ConfigError as error:
+            # Deferred to `Command.invoke`, so help & version still exit 0
+            if state.config_error is None:
+                state.config_error = error
         return value, args
 
 
@@ -400,6 +410,8 @@ def _check_shape(ctx: click.Context) -> None:
     for name in command.commands:
         value = ctx.default_map.get(name)
         if value is not None and not isinstance(value, dict):
+            # The error is deferred: give the subcommand a table meanwhile
+            ctx.default_map = {**ctx.default_map, name: {}}
             raise ConfigError(
                 f"config: [{'.'.join([*below, name])}] must be a table, not "
                 f"{type(value).__name__}"
