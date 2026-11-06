@@ -138,11 +138,11 @@ variable, then the fallback.
 ```python
 @dataclass(frozen=True)
 class Config:
-    name: str | None = None      # dirs & default file; default State.package
-    project: str | None = None   # bare file name; default f".{name}.toml"
-    table: str | None = None     # dotted, e.g. "tool.pkgdx"; project file only
-    profiles: bool = False       # adds --profile NAME
-    dotenv: bool = False         # Item 4
+    name: str | None = None  # dirs & default file; default State.package
+    project: str | None = None  # bare file name; default f".{name}.toml"
+    table: str | None = None  # dotted, e.g. "tool.pkgdx"; project file only
+    profiles: bool = False  # adds --profile NAME
+    dotenv: bool = False  # Item 4
 ```
 
 `pyclig.group(..., config=Config(...))`, and `pyclig.command` too, inserts options at `params[0:2]`:
