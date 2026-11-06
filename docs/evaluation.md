@@ -359,3 +359,200 @@ keep their value as guards.
    Behaviour unchanged, no test.
 3. `emit` dumps JSON with `allow_nan=False`, so a NaN or infinity is a bug (exit 70) instead of
    invalid JSON on STDOUT: `test_emit_json_refuses_nan`.
+
+## Round 5 - configuration and environment
+
+Date: 6 November 2026. `docs/plan-0.5.0.md` set seven items; `feat/config-env` ships them in
+eight feature commits (`d8ed44b` to `6a88b0b`), a test commit and the docs. A fresh agent
+evaluated from the plan, `CLAUDE.md` and `git diff 617b548...HEAD` alone, on a wheel of the
+branch (`SETUPTOOLS_SCM_PRETEND_VERSION_FOR_PYCLIG=0.5.0`). Consumers were not changed: each was
+cloned into a scratch directory at its `develop` (the template from GitHub), run unmodified with
+only the pyclig pin overridden, and the P3 fit was applied to the pkgdx scratch clone only.
+
+| Repository | Tests | Notes |
+| --- | --- | --- |
+| pyclig | 360 passed, 97% coverage | 3.11, 3.13 & 3.14; mypy clean on 3.11 & 3.14; prek clean |
+| pyclig, `NO_COLOR=1` | 360 passed | The developer-environment case from the P4 record |
+| dkais (scratch, `b6c846b`) | 134 on 0.4.0; 134 on the branch, 0 fail | Exactly as predicted |
+| pkgdx (scratch, `a041464`) | 242 on 0.4.0; 242 on the branch, 0 fail | Exactly as predicted |
+| pkgdx, P3 sketch | `test_standards_config.py`: 55 passed | `paths.config_dir("pkgdx")` |
+| template (scratch, `62fae4b`) | Generated `cli=True`: 5 on 0.4.0; 5 on the branch | `help` works |
+
+### Verdict on the 0.5.0 items
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| 1 `paths` | Confirmed on Windows & WSL (Linux) | `test_system_config_dirs_takes_first_absolute` |
+| 2 value `GlobalOption` | Confirmed: flag, env, `.env`, file | `test_global_option_is_flag_rules` |
+| 3 `Config` | Confirmed, every row of both tables; defects 1-4 | `test_precedence_matrix` |
+| 4 `.env` | Confirmed | `test_dotenv_below_the_environment_above_the_files` |
+| 5 `secret` | Confirmed, `<(...)` & a WSL pty included | `test_secret_refuses_a_terminal_stdin` |
+| 6 `<PROG>_DEBUG`, `_NO_COLOR` | Confirmed; bold stays | `test_run_honours_debug_variable` |
+| 7 `-o`, `-p`, `-u` | Confirmed; kit clean | `test_kit_is_clean_on_every_factory` |
+
+Items 3 & 4 are in `tests/test_config.py`, 1 in `test_paths.py`, 2 in `test_core.py`, 5 & 7 in
+`test_options.py` and 6 in `test_logging.py`. By subprocess, with a test package `evalcli`
+(`Config(profiles=True, dotenv=True)`, a value `--region`, `show` with `--name`, `--tag`
+`multiple=True`, `--level`, a nested `sub leaf`) and temporary `APPDATA`, `ProgramData` and XDG
+directories: with a system, a user and a project file the system `region` & `tag` list, the user
+`level` and the project `name` all arrive, and flag > env > `.env` > profile (project, user,
+system) > project > user > system holds for every pair; `--profile` before or after the
+subcommand, or `EVALCLI_PROFILE`, selects `[profiles.NAME.show]`; `--config` replaces all three
+files; `--config pyproject.toml` with `table="tool.evalcli"` selects the table and `other.toml`
+is read whole; `prog sub --config f` fills `sub` & `sub leaf`; bad TOML exits 1 naming the file;
+a missing or directory `--config` exits 2; an unknown profile exits 2 naming the files, or
+`no config file found`; `--help`, `sub --help`, `sub leaf --help`, `-v` & `_CLI_COMPLETE` exit 0
+with a broken project file; `EVALCLI_DEBUG=1` logs `loaded config` during parsing before a
+`--bogus` usage error, `0`, `false`, `NO`, `off` & empty do not, ` 1 ` & `yes` do; `.env`
+accepts `export`, quotes & trailing comments, warns `.env:7: not KEY=VALUE, ignored`, skips
+`EVALCLI_TOKEN` (logged at debug), fills `--tag` with `"t1 t2"` split in two, loses to the real
+environment and to a flag, and a child `python -c` sees no `EVALCLI_NAME`; `--token-file -`
+receives `s3cret` from `printf 's3cret\n' |`, with `\r\n`, without a newline, and keeps a second
+newline; a file, `<(printf ...)` on WSL, an empty secret (2), a missing file (2), a directory (2),
+`required=True` missing (2) and STDIN a pty under `script` (2, `STDIN is a terminal - pipe the
+secret in`) all behave. `-o -` is accepted, `-p 70000` exits 2, `-u` reads its `envvar=`.
+
+Reversion: each feature commit's added tests were run with `src/` at the commit's parent (files
+the commit added removed). Every test fails except the invariant guards: `d8ed44b` 6 of 9 - the
+falsy-value and `-d`-after-variable tests pass without the feature; `80707cd` 4 of 5 -
+`test_dotenv_is_opt_in` passes by design. `319e4b0` 6 of 6 and `7454264` 1 of 1 fail; for
+`e3704c6`, `56b8b70`, `030e40b` & `6a88b0b` the test module cannot import (`paths`, `Config`,
+`options.secret`, `options.output`), so all 8, 23, 5 & 4 fail at collection.
+
+### Defects found in 0.5.0
+
+1. The help look-ahead (`_config.py:216-218`) treats any remaining `--help` or `-h` argument as a
+   help request, so `prog show --name --help` (the option's value), `prog show -- --help` (a
+   positional) and `prog --config f show -- --help` run the command with no file read:
+   `name=--help ... files=[]`, and the explicit `--config` is silently ignored.
+2. `prog --config broken.toml --help` exits 1 with `error: cannot read config ...`: click
+   processes the eager options that were given in command-line order, so `ConfigOption`'s
+   `handle_parse_result` runs before `--help`'s callback, and `--help` is then in `opts`, not in
+   `args`, where the look-ahead searches. `prog --help --config broken.toml` exits 0. README
+   (`:182-183`) and `_config.py:24` say `--help` reads no file;
+   `test_help_version_and_completion_read_no_file` only puts `--help` first.
+3. `prog help show` with a broken project file exits 1: the `help` command is resolved in
+   `Group.resolve_command` (`_core.py:801-807`), after the root's parameters, config included,
+   are processed. `prog show --help` prints the help.
+4. A `--profile` given after the subcommand replays the main tables over the root's profile
+   (`_config.py:283-289`): `prog --profile alpha show --profile beta` prints `name=project`, not
+   alpha's `proj-alpha` from the project file's `[profiles.alpha.show]`, while alpha's root key
+   `region=user-alpha` survives. Two profiles in one run only.
+5. `state.config_files` is overwritten by a subcommand's `--config` (`_config.py:279`):
+   `prog show --config f` records `[f]` while the root read three files; the `-d` log shows four.
+
+### Integration on `feat/config-env`
+
+- Real CLIs on the wheel: `DKAIS_DEBUG=1 dkais --help` prints the help, exit 0;
+  `PKGDX_DEBUG=1 pkgdx-format-hook <file>` logs `[resolve_config] Using bundled config ...` at
+  DEBUG and `1 file left unchanged`, without the variable the latter only; `assert_conforms`
+  clean on dkais & pkgdx develop; dkais `test_fast_paths_skip_heavy_imports` 6 passed.
+- The fallback case: pkgdx 0.7.0 from PyPI resolves with the branch wheel; `pkgdx --help` exit 0,
+  `PKGDX_DEBUG=1 pkgdx init` in a throwaway project logs `create_secrets_baseline` (3 changed,
+  one network warning, exit 0) & `assert_conforms` clean.
+- PyPI, re-checked: pkgdx 0.7.0 requires `pyclig~=0.2`, 0.8.0 `pyclig~=0.3.0`, 0.9.0
+  `pyclig~=0.4.0`. The plan's order - pkgdx, template, dkais - holds. Issues drafted, not filed.
+- `import pyclig` adds `pyclig._config` & `pyclig.paths` only (178 to 180 modules) and none of
+  `tomllib`, `rich.traceback`, `rich.logging`, `rich.progress`, `rich.table`,
+  `importlib.metadata` or `_conformance`. After `--help` of the config CLI none of those is
+  loaded, after `-v` only `importlib.metadata`, after `show` `tomllib`. `Requires-Dist` is still
+  `click~=8.5` & `rich~=15.0`. The three paths functions, pointed at absent parents, create
+  nothing.
+- Start-up, median of 15, two runs (0.4.0 to branch): `dkais --help` 190 to 223 & 208 to 216 ms,
+  `dkais -v` 251 to 218 & 221 to 206, `import dkais.__main__` 178 to 208 & 180 to 217,
+  `import pyclig` 145 to 163 & 197 to 171. The run-to-run spread (about 30 ms) exceeds any
+  difference; pkgdx 0.7.0 `--help` 260-296 ms against develop 200-217.
+- Claims: every row moved to `done` in `clig-coverage.md` names behaviour that was observed;
+  CHANGELOG matches the code and dates 0.4.0; the shipped signatures match the plan. README is
+  right except the sentence that a broken file "never hides the help" (defects 2 & 3).
+
+### Departures from the 0.5.0 plan
+
+- `--profile` or `--config` after the subcommand applies to that command and below only:
+  `prog show --profile alpha` leaves the root's `region` at the main tables' `sys`, where
+  `prog --profile alpha show` gives `user-alpha`. Documented for `--config`; "either order" holds
+  for the subcommand's own table.
+- An environment variable set but empty (`EVALCLI_NAME=`) is filled from `.env`: click's
+  `resolve_envvar_value` treats an empty value as unset, so `.env` follows click, not "set".
+- `<PROG>_NO_COLOR=1 FORCE_COLOR=1` prints `\x1b[1merror:\x1b[0m` - colour gone, bold kept - on
+  Windows and on a WSL pty, as `--no-color` and Rich's `no_color` do (README `:91`).
+- `--config PyProject.toml` on Windows is read whole: the name match (`_config.py:264`) is
+  case-sensitive where the file system is not.
+- The tree versions as `v0.2.0-60-g2f2b9a3`; the wheel was built with the pretend version.
+- From Git Bash `PROGRAMDATA=x` never reaches Python: MSYS exports both spellings and
+  `os.environ` keeps the inherited `ProgramData`. `ProgramData=x` works, as does PowerShell. Not
+  pyclig's, and `tests/test_paths.py` patches `os.environ` directly.
+
+### Remaining after 0.5.0
+
+- Under Git Bash `</dev/null` is `NUL`, which reports as a terminal, so `--token-file -` says
+  `STDIN is a terminal` where WSL says `the secret is empty`. Pre-existing `isatty` (Round 4).
+- `prog show -v` is a usage error: `-v` stays root-only, as in 0.4.
+- Not verified this round: macOS, and `-X importtime` on 3.11 (3.13 was used).
+
+### Fixed after evaluation (0.5.0)
+
+Five fix commits, `1cfe92a` to `0e9d690`, re-checked by the same subprocess CLI on a rebuilt
+wheel. The help look-ahead went: a `ConfigError` is kept on `State.config_error` and raised in
+`Context.invoke` (`_core.py:116-118`) before any callback, and `Group.invoke` (`:763-776`)
+first resolves and parses the subcommand so its `--help` answers.
+
+1. `prog show --name --help`, `prog show -- --help` & `prog --config f show -- --help` now apply
+   the files (`files=[...]`, `region=explicit`): `test_help_as_a_value_does_not_skip_config`.
+2. `prog --config broken.toml --help` exits 0, as do `--help`, `show --help`, `sub --help`, `-v`
+   & completion with a broken project file; a run still exits 1:
+   `test_help_paths_exit_0_with_a_broken_file`.
+3. `prog help show` & `prog help sub leaf` exit 0 with a broken file: same test.
+4. Redefined rather than restored: a `--profile` at a subcommand layers over the application's
+   own `default_map` (`_config.py:300-310`, `BASE_KEY`), so `prog --profile alpha show --profile
+   beta` still prints `name=project` - beta replaces alpha for `show`, alpha keeps the root's
+   `region=user-alpha`: `test_profile_at_a_subcommand_layers_like_the_root`. One profile per
+   level is now the rule.
+5. `prog show --config f` records all four files: `test_config_files_records_every_file_applied`.
+
+Side effects under a deferred error were checked once each: in the normal case the subcommand
+is parsed once and every callback runs once (`--trace`, a value `--region`, an `envvar=`
+callback, the root callback); with a broken file the subcommand's option callbacks run once in
+the pre-parse, the root callback never runs, `--token-file -` consumes STDIN once and the run
+exits 1 (`test_config_error_precedes_every_callback`). A usage error found in the pre-parse
+(`show --bogus`, 2) wins over the config error (1), which is fine. Bare `prog` with a broken file
+exits 1 with the error instead of concise help - unchanged from the evaluated tree, consistent
+with "no application code runs on defaults that miss the config" (the root callback runs before
+the concise help), and the plan's table names `--help`, `-v` & completion only. Acceptable.
+
+New in the fixes:
+
+- Defect 6: `prog sub leaf --help` with a broken file exits 1 on Windows & WSL: the pre-parse in
+  `Group.invoke` (`_core.py:771-775`) resolves one level, so a nested group's `leaf --help` sits
+  in `sub`'s protected arguments when the error is raised. `prog sub --help` & `prog help sub
+  leaf` exit 0. Before the fixes the look-ahead gave 0.
+- Defect 7: A `prompt=True` option is asked before the deferred error (WSL pty: `Answer:` then
+  `error: aborted` on EOF): the pre-parse prompts for a value the run will never use.
+  `options.secret` reading a file or STDIN behaves the same way, harmlessly.
+
+Consumers on the rebuilt wheel, unmodified: dkais 134 passed, pkgdx 242 passed, the generated
+`cli=True` project 5 passed & `evaltool help` exit 0.
+
+Every commit from `78fb383` to `0e9d690` was tested on its own tree, installed from a scratch
+worktree into a venv holding only click, rich & pytest (an environment with the main repo's
+editable install contaminates the subprocess tests, which build a clean `env=`). All 18 pass
+except `b851998`: 2 failed, `test_help_paths_exit_0_with_a_broken_file[sub-help]` &
+`test_config_error_precedes_every_callback`, green again at `0e9d690`. For a bisect, treat
+`b851998` as a known-red commit. The gate at `0e9d690`: 370 passed, mypy clean, 97% coverage.
+
+Re-checked after `c4cadd5`, which replaced the pre-parse: while a config error is pending a group
+that is descending to a subcommand skips its callback, the first callback that would run raises,
+and a prompt raises instead of prompting. On a rebuilt wheel, by subprocess:
+
+- Defect 6 fixed: `prog sub leaf --help` & `prog help sub leaf` exit 0 with a broken file on
+  Windows & WSL, as do `--help`, `show --help`, `sub --help`, `iwc --help`, `-v` &
+  `--config bad.toml --help`: `test_help_paths_exit_0_with_a_broken_file[nested-help]`.
+- Defect 7 fixed: on a WSL pty `prog ask` prints the config error with no `Answer:` prompt; a
+  piped STDIN gives the same: `test_config_error_precedes_every_callback` (the `ask` case).
+- Defects 1-5 still hold (same repros, same output). A broken run exits 1 with the root `--trace`
+  callback run once and no root, `sub` or leaf callback; `--token-file -` consumes nothing the
+  run would reuse. An `invoke_without_command=True` group with a broken file exits 1, callback
+  not run, and its `--help` exits 0. Normal runs are unchanged: root, `sub` & leaf callbacks run
+  once each in order, `iwc` runs its callback, the prompt is asked once on a pty.
+- Gate at `c4cadd5`: 371 passed, mypy clean. Consumers on the rebuilt wheel, unmodified: dkais 134
+  passed, pkgdx 242 passed, the generated `cli=True` project 5 passed & `evaltool help` exit 0.

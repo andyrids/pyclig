@@ -32,7 +32,8 @@ import os
 import re
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal, TextIO
 
 import click
@@ -68,7 +69,7 @@ class State:
         err: The STDERR console, shared by logging & live displays.
         package: The application package - its logger & distribution.
         errors: Expected exception types.
-        debug: Whether `-d/--debug` was given.
+        debug: Whether `-d/--debug` or `<PROG>_DEBUG` was given.
         quiet: Whether `-q/--quiet` was given.
         no_input: Whether `--no-input` was given.
         in_tty: Whether STDIN is a terminal, so a prompt can be answered.
@@ -76,6 +77,13 @@ class State:
             the real `isatty`, which `FORCE_COLOR` does not change.
         format: The STDOUT format: `human` on a terminal, else `plain`,
             unless `--plain` or `--json` says otherwise.
+        discover: Whether config files are searched for; `--config` & the
+            `<PROG>_CONFIG` file are read regardless.
+        config_files: The config files read, lowest precedence first.
+        dotenv: The `./.env` values, read with `Config(dotenv=True)`; they
+            fill declared `envvar=` options & never reach `os.environ`.
+        config_error: The first error met reading the config files, raised
+            when a command is invoked, so help & version never fail on it.
     """
 
     out: Console
@@ -88,11 +96,62 @@ class State:
     in_tty: bool = False
     err_tty: bool = False
     format: Format = "plain"
+    discover: bool = True
+    config_files: tuple[Path, ...] = ()
+    dotenv: dict[str, str] = field(default_factory=dict)
+    config_error: click.ClickException | None = None
 
     @property
     def can_prompt(self) -> bool:
         """Whether a prompt can be seen & answered, and was not refused."""
         return self.in_tty and self.err_tty and not self.no_input
+
+    @property
+    def env_prefix(self) -> str:
+        """The `<PROG>` of `<PROG>_DEBUG`: `prefix_of` the package."""
+        return prefix_of(self.package)
+
+
+def prefix_of(package: str) -> str:
+    """Return the environment variable prefix of a package.
+
+    Args:
+        package: The application package, e.g. `my-tool.cli`.
+
+    Returns:
+        The package upper-cased, `_` replacing every non-word character,
+        e.g. `MY_TOOL_CLI`.
+    """
+    return re.sub(r"\W", "_", package).upper()
+
+
+_FALSE = frozenset({"", "0", "false", "no", "off"})
+"""`<PROG>_DEBUG` & `<PROG>_NO_COLOR` values that mean off, lower-cased."""
+
+
+def apply_environment(state: State) -> None:
+    """Honour `<PROG>_DEBUG` & `<PROG>_NO_COLOR` before any option is parsed.
+
+    NOTE: A variable is on when set, non-empty & not `0`, `false`, `no` or
+    `off`, unlike bare `NO_COLOR`, which Rich honours whenever it is set.
+    Neither is shown in `--help`. A later `-d` or `--no-color` is a no-op.
+    `-d` from the variable means the whole run, parsing included, logs at
+    `DEBUG`, so the caller configures logging from `state.debug`.
+
+    Args:
+        state: The run's state, with the consoles to drop colour from.
+    """
+    prefix = state.env_prefix
+    if _truthy(os.environ.get(f"{prefix}_DEBUG")):
+        state.debug = True
+    if _truthy(os.environ.get(f"{prefix}_NO_COLOR")):
+        state.out.no_color = True
+        state.err.no_color = True
+
+
+def _truthy(value: str | None) -> bool:
+    """Check whether an environment variable value means on."""
+    return value is not None and value.strip().lower() not in _FALSE
 
 
 def state_of(ctx: click.Context) -> State | None:

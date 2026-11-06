@@ -15,7 +15,7 @@ new = set(sys.modules) - before
 heavy = (
     "rich.traceback", "rich.logging", "pygments", "importlib.metadata",
     "rich.progress", "rich.table", "rich.box",
-    "pyclig._conformance", "pyclig.testing", "click.testing",
+    "pyclig._conformance", "pyclig.testing", "click.testing", "tomllib",
 )
 print(json.dumps({
     "heavy": sorted(m for m in new if m.startswith(heavy)),

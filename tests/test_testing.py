@@ -1,9 +1,16 @@
 """Tests for `pyclig.testing` - the in-process harness."""
 
+import os
+
+import click
 import pytest
 
+import pyclig
 from pyclig import Group
 from pyclig.testing import invoke
+
+# The `<PROG>_` variables a run reads, cleared by `invoke`
+_PREFIXED = ("DEBUG", "NO_COLOR", "CONFIG", "PROFILE")
 
 
 def test_echo_and_console_output_keep_order(sample: Group) -> None:
@@ -54,3 +61,20 @@ def test_colour_flag_styles_terminal_output(sample: Group) -> None:
         sample, ["fail", "--kind", "mapped"], err_tty=True, color=True
     )
     assert result.stderr.startswith("\x1b[1;31merror:")
+
+
+def test_prefixed_variables_cleared(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Assert a developer's `TESTS_DEBUG` & friends do not leak into a run."""
+
+    @pyclig.command("probe")
+    def probe() -> None:
+        """Print the run's `<PROG>_` variables."""
+        for var in _PREFIXED:
+            click.echo(f"{var}={os.environ.get(f'TESTS_{var}')}")
+
+    for var in _PREFIXED:
+        monkeypatch.setenv(f"TESTS_{var}", "1")
+    result = invoke(probe)
+    assert result.stdout == "".join(f"{var}=None\n" for var in _PREFIXED)
+    result = invoke(probe, env={"TESTS_CONFIG": "app.toml"})
+    assert "CONFIG=app.toml\n" in result.stdout

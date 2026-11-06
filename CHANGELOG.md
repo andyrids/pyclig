@@ -16,7 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > - `Fixed` for any bug fixes.
 > - `Security` in case of vulnerabilities.
 
-## [0.4.0]
+## [0.5.0]
+
+### Added
+
+- `pyclig.Config` & `config=`: `--config FILE` & `--profile NAME` read TOML files into click's
+  `default_map` - flags > env > `.env` > profile > project > user > system > defaults
+- `Config(dotenv=True)`: `./.env` fills declared `envvar=` options the environment left empty,
+  never `os.environ`; secret-named keys are skipped
+- `pyclig.paths`: `config_dir`, `data_dir` & `system_config_dir` - XDG everywhere but Windows
+- `GlobalOption` takes a value with `type=`; its callback runs when given, never for `default=`
+- `options.secret(name)`: `--<name>-file FILE` reads a secret from a file or piped STDIN, never
+  from a terminal
+- `options.output`, `options.port` & `options.user`: `-o`, `-p` & `-u` with their standard names
+- `<PROG>_DEBUG` & `<PROG>_NO_COLOR`, read before parsing; off for `0`, `false`, `no` & `off`
+- `testing.invoke(config_files=)`: no config file or `.env` is read in a test unless asked, and
+  `<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG` & `_PROFILE` are cleared
+
+## [0.4.0] - 2026-11-04
 
 ### Added
 

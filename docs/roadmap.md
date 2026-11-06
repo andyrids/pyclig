@@ -26,14 +26,14 @@ attributes). A release may ship fewer items than listed, never a breaking one.
   where click's `more` fallback cannot show it (OUT-19)
 - Grouped failures under one header (ERR-3)
 
-## 0.5 - configuration and environment
+## 0.5 - configuration and environment (delivered in 0.5.0)
 
 - XDG config & data paths (CFG-4)
 - `GlobalOption` taking a value (`--config FILE`, `--profile NAME`), which precedence needs;
   0.3.0 supports flags only, and widening it later is additive (CFG-8)
 - Precedence flags > environment > project > user > system (CFG-3, CFG-8)
 - `.env` reading, with the limits CLIG puts on it (CFG-2, ENV-13)
-- Secrets from files, pipes or a secret store (ENV-16, ARG-16)
+- Secrets from files or STDIN (pipes, process substitution) (ENV-16, ARG-16)
 - `<PROG>_DEBUG` & `<PROG>_NO_COLOR` (ENV-6, OUT-13e)
 - `-o/--output`, `-p/--port` & `-u/--user` factories (ARG-6e)
 

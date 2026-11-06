@@ -15,7 +15,7 @@ file is shared under the same licence.
 
 CLIG is the requirement. Every actionable rule has a row here, and the IDs are the one namespace
 shared by `pyclig.testing.assert_conforms`, `docs/roadmap.md` and the CHANGELOG. Status is as of
-0.4.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
+0.5.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
 so it stays true across line moves.
 
 Status: `done` means pyclig delivers it, `done (click)` or `done (rich)` that a dependency does;
@@ -56,7 +56,7 @@ library's reach.
 | HELP-15 | Suggest a likely correction | done (click) | Did-you-mean, commands & options | auto |
 | HELP-16 | Offer to run the correction | gap | Suggestion only | interface |
 | HELP-17 | Never silently run the corrected command | done (click) | No abbreviations | auto |
-| HELP-18 | Pipe expected, STDIN a TTY: help & exit | gap | `click.File('-')` blocks | interface |
+| HELP-18 | Pipe expected, STDIN a TTY: help & exit | partial | `secret('-')` refuses | interface |
 
 ## Documentation
 
@@ -87,7 +87,7 @@ library's reach.
 | OUT-13b | `NO_COLOR` set & non-empty | done (rich) | `test_no_color_removes_colour` | auto |
 | OUT-13c | `TERM=dumb` | done (rich) | Rich console | auto |
 | OUT-13d | `--no-color` | done | `_flags.NO_COLOR` | auto |
-| OUT-13e | `MYAPP_NO_COLOR` | gap | Roadmap 0.5 | auto |
+| OUT-13e | `MYAPP_NO_COLOR` | done | `_run.apply_environment` | auto |
 | OUT-14 | No animation off a TTY | done | `status` & `progress`, interactive only | interface |
 | OUT-15 | Symbols & emoji where clearer | done | UTF-8 streams; `hanging(head=)` | check |
 | OUT-16 | Developer detail only when verbose | done | `-d` | auto |
@@ -122,7 +122,7 @@ library's reach.
 | ARG-6b | Standard names: `-d`, `-h`, `--version` | done | Run flags; `-v` means version | auto |
 | ARG-6c | Standard names: `--no-input` | done | `_flags.NO_INPUT` | auto |
 | ARG-6d | Standard names: `-q` | done | `_flags.QUIET` | auto |
-| ARG-6e | Standard names: `-o`, `-p`, `-u` | gap | Roadmap 0.5 | interface |
+| ARG-6e | Standard names: `-o`, `-p`, `-u` | done | `options.output/port/user` | interface |
 | ARG-7 | Defaults suit most users | gap | Judgement | out |
 | ARG-8 | Prompt for missing input | done | `prompt=` on STDERR, gated | interface |
 | ARG-9 | Never require a prompt; skip off a TTY | done | Default, else fail naming the flag | auto |
@@ -133,7 +133,7 @@ library's reach.
 | ARG-13 | `-` for STDIN & STDOUT | done (click) | `click.File` | interface |
 | ARG-14 | A word like `none` for an optional value | gap | No type | interface |
 | ARG-15 | Order independence | partial | Run flags anywhere; `-v` at the root only | check |
-| ARG-16 | No secrets from flags; file or STDIN | done | Kit: a `--password`-like value | check |
+| ARG-16 | No secrets from flags; file or STDIN | done | Kit; `options.secret` | check |
 
 ## Interactivity
 
@@ -151,7 +151,7 @@ library's reach.
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | SUB-1 | Subcommands for complexity | done (click) | `pyclig.group` | out |
-| SUB-2 | Shared flags, config & storage | done | Run flags, `GlobalOption` | interface |
+| SUB-2 | Shared flags, config & storage | done | Run flags, `GlobalOption`, `Config` | interface |
 | SUB-3 | Same flag names & output format | partial | Kit: plain click child; `ctx.emit` | check |
 | SUB-4 | Consistent naming, noun-verb order | gap | Unchecked | check |
 | SUB-5 | No confusable names | gap | Unchecked | check |
@@ -195,13 +195,13 @@ library's reach.
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | CFG-1 | Per-invocation settings: flags & env | done (click) | `envvar=` | interface |
-| CFG-2 | Per-machine settings: flags, env, `.env` | partial (click) | No `.env` (0.5) | interface |
-| CFG-3 | Per-project settings in a versioned file | gap | Roadmap 0.5 | interface |
-| CFG-4 | XDG locations | partial (click) | `get_app_dir`, unwrapped (0.5) | interface |
+| CFG-2 | Per-machine settings: flags, env, `.env` | done | `Config(dotenv=True)` | interface |
+| CFG-3 | Per-project settings in a versioned file | done | `Config.project` | interface |
+| CFG-4 | XDG locations | done | `pyclig.paths`; `tests/test_paths.py` | interface |
 | CFG-5 | Consent before editing others' config | gap | Application concern | out |
 | CFG-6 | A new file rather than appending | gap | Application concern | out |
 | CFG-7 | Dated comment in a system file | gap | Application concern | out |
-| CFG-8 | Precedence: flags, env, project, user | partial (click) | `default_map` (0.5) | interface |
+| CFG-8 | Precedence: flags, env, project, user | done | `test_precedence_matrix` | interface |
 
 ## Environment variables
 
@@ -212,17 +212,17 @@ library's reach.
 | ENV-3 | Single-line values | gap | Unchecked | out |
 | ENV-4 | Don't reuse common names | gap | Unchecked | check |
 | ENV-5 | `NO_COLOR` & `FORCE_COLOR` | done | `FORCE_COLOR` means colour only | auto |
-| ENV-6 | `DEBUG` | gap | Roadmap 0.5 (`<PROG>_DEBUG`) | auto |
+| ENV-6 | `DEBUG` | done | `<PROG>_DEBUG`; `test_debug_variable_turns_on_debug_logging` | auto |
 | ENV-7 | `EDITOR` | done (click) | `click.edit` | interface |
 | ENV-8 | Proxy variables | gap | HTTP library's job | out |
 | ENV-9 | `SHELL`, `TMPDIR`, `HOME` | gap | Standard library or application | out |
 | ENV-10 | `TERM`, `TERMINFO`, `TERMCAP` | partial (rich) | `TERM` only | auto |
 | ENV-11 | `PAGER` | done (click) | `echo_via_pager` | interface |
 | ENV-12 | `LINES` & `COLUMNS` | partial (rich) | `COLUMNS` | auto |
-| ENV-13 | Read a local `.env` | gap | Roadmap 0.5 | interface |
-| ENV-14 | `.env` is not a config file | gap | Guidance | out |
-| ENV-15 | No secrets from env vars | done | Kit: an `envvar=` ending in `_TOKEN` etc. | check |
-| ENV-16 | Secrets via file, pipe, socket or service | gap | Roadmap 0.5 | interface |
+| ENV-13 | Read a local `.env` | done | `Config(dotenv=True)`; `read_dotenv` | interface |
+| ENV-14 | `.env` is not a config file | done | Fills `envvar=` only, never `os.environ` | auto |
+| ENV-15 | No secrets from env vars | done | Kit: a `_TOKEN`-like `envvar=`; `.env` skips | check |
+| ENV-16 | Secrets via file, pipe, socket or service | done | `options.secret` | interface |
 
 ## Naming, distribution and analytics
 
@@ -257,3 +257,12 @@ HELP-6, DOC-4, OUT-2, OUT-4, OUT-5, OUT-7, OUT-9, OUT-14, OUT-19, ERR-3 & ROB-3 
 ROB-5 to `partial`, closing in 0.6. OUT-5's owner became `interface`: the kit cannot judge
 "brief". OUT-19 pages on Windows only when `PAGER` is set, as click's `more` fallback garbles
 UTF-8 and cannot scroll.
+
+## Delivered in 0.5.0
+
+CFG-2, CFG-3, CFG-4, CFG-8, ENV-6, ENV-13, ENV-14, ENV-16, OUT-13e & ARG-6e moved to `done`;
+HELP-18 to `partial`: `options.secret("-")` refuses a terminal STDIN with a usage error, while
+`click.File("-")` still blocks. ENV-14's owner became `auto`: `.env` fills declared `envvar=`
+options only and never `os.environ`, so no kit check was needed. Top-level config keys do not
+cascade into subcommand tables (click's `default_map` shape); a shared setting is a value
+`GlobalOption`. `--config FILE` selects `table` only when named like the project file.

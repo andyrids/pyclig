@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from pyclig import Group
+from pyclig import Group, _conformance, testing
 from tests.sample_cli import cli
 
 SAMPLE = Path(__file__).with_name("sample_cli.py")
@@ -54,6 +54,18 @@ class InterruptingInput(io.BytesIO):
             No bytes, for a zero-length read.
         """
         return self.read(size)
+
+
+@pytest.fixture(autouse=True)
+def _clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove the developer's colour & terminal variables from every test.
+
+    NOTE: `invoke` & `check` clear them for the run they start, but a test
+    that builds consoles itself (`pyclig.run`, `notice` on a console) reads
+    the real environment, so a developer's `NO_COLOR=1` would fail it.
+    """
+    for name in {*testing._CLEARED, *_conformance._CLEARED}:
+        monkeypatch.delenv(name, raising=False)
 
 
 @pytest.fixture
