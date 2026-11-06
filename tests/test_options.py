@@ -1,5 +1,7 @@
 """Tests for `pyclig.options` - the standard flags."""
 
+from pathlib import Path
+
 import click
 import pytest
 
@@ -100,3 +102,70 @@ def test_plain_overrides_tty_compatible(run_sample: RunSample) -> None:
     )
     result = run_sample("rows", "--plain", env={"TTY_COMPATIBLE": "1"})
     assert result.stdout == "format=plain json=False\n"
+
+
+@pyclig.group("vault")
+def vault() -> None:
+    """Read secrets from files or STDIN."""
+
+
+@vault.command()
+@pyclig.options.secret("token")
+@pyclig.options.secret("api-key", required=True, help="The API key file.")
+def login(token: str | None, api_key: str) -> None:
+    """Print the secrets read."""
+    click.echo(f"token={token!r} api_key={api_key!r}")
+
+
+def test_secret_from_file_strips_one_line_ending(tmp_path: Path) -> None:
+    """Assert a secret file's text loses one trailing newline, CRLF or LF."""
+    key = tmp_path / "key"
+    key.write_bytes(b"s3cret\r\n")
+    result = invoke(vault, ["login", "--api-key-file", str(key)])
+    assert result.stdout == "token=None api_key='s3cret'\n"
+    key.write_bytes(b"two\n\n")
+    token = tmp_path / "token"
+    token.write_text("t\n")
+    args = ["login", "--api-key-file", str(key), "--token-file", str(token)]
+    expected = f"token='t' api_key={'two' + chr(10)!r}"
+    assert invoke(vault, args).stdout.splitlines() == [expected]
+
+
+def test_secret_from_stdin(tmp_path: Path) -> None:
+    """Assert `-` reads a piped STDIN, with the same newline rule."""
+    result = invoke(vault, ["login", "--api-key-file", "-"], input="s3cret\n")
+    assert result.stdout == "token=None api_key='s3cret'\n"
+
+
+def test_secret_refuses_a_terminal_stdin() -> None:
+    """Assert `-` on a terminal is a usage error, never a blocking read."""
+    result = invoke(vault, ["login", "--api-key-file", "-"], in_tty=True)
+    assert result.exit_code == 2
+    assert "pipe" in result.stderr
+    assert "Try 'vault login --help'" in result.stderr
+
+
+def test_secret_usage_errors(tmp_path: Path) -> None:
+    """Assert missing, empty, absent & directory inputs exit 2."""
+    result = invoke(vault, ["login"])
+    assert result.exit_code == 2
+    assert "Missing option '--api-key-file'" in result.stderr
+    empty = tmp_path / "empty"
+    empty.write_text("\n")
+    result = invoke(vault, ["login", "--api-key-file", str(empty)])
+    assert result.exit_code == 2
+    assert "empty" in result.stderr
+    result = invoke(vault, ["login", "--api-key-file", str(tmp_path / "no")])
+    assert result.exit_code == 2
+    assert "does not exist" in result.stderr
+    result = invoke(vault, ["login", "--api-key-file", str(tmp_path)])
+    assert result.exit_code == 2
+    assert "is a directory" in result.stderr
+
+
+def test_secret_help() -> None:
+    """Assert the option is `--<name>-file FILE` with a default help text."""
+    text = invoke(vault, ["login", "--help"]).stdout
+    assert "--api-key-file FILE  The API key file." in text
+    assert "--token-file FILE" in text
+    assert "Read the token from FILE, or from STDIN with `-`." in text
