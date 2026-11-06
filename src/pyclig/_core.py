@@ -408,11 +408,18 @@ class Command(click.Command):
         if config is not None:
             self.params[:0] = _config.options(config)
         for param in self.params:
-            if isinstance(param, click.Option) and param.prompt is not None:
+            if not isinstance(param, click.Option):
+                continue
+            if param.prompt is not None:
                 gated = functools.partial(
                     _prompt, param, param.prompt_for_value
                 )
                 setattr(param, "prompt_for_value", gated)
+            if param.envvar:
+                resolve = functools.partial(
+                    _config.dotenv_value, param, param.resolve_envvar_value
+                )
+                setattr(param, "resolve_envvar_value", resolve)
 
     def get_params(self, ctx: click.Context) -> list[click.Parameter]:
         """Return the own parameters, the global options, then help.

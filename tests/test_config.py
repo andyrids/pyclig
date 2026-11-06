@@ -1,5 +1,6 @@
 """Tests for `pyclig._config` - config files under click's `default_map`."""
 
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -475,3 +476,104 @@ def test_config_option_named_like_the_project_file_selects_table(
     whole = tmp_path / "other.toml"
     whole.write_text("level = 9\n[tool.demo]\nlevel = 4\n")
     assert invoke(tool, ["--config", str(whole)]).stdout == "level=9\n"
+
+
+@pyclig.group("dot", config=pyclig.Config(name="dot", dotenv=True))
+def dot() -> None:
+    """Demonstrate `.env`."""
+
+
+@dot.command()
+@click.option("--level", type=int, default=0, envvar="DOT_LEVEL")
+@click.option("--token", envvar="DOT_TOKEN")
+@click.option("--name", "names", multiple=True, envvar="DOT_NAMES")
+@click.option("--alt", envvar=["DOT_ALT_A", "DOT_ALT_B"])
+def dump(
+    level: int, token: str | None, names: tuple[str, ...], alt: str | None
+) -> None:
+    """Print the resolved values & the real environment."""
+    click.echo(
+        f"level={level} token={token} names={list(names)} alt={alt} "
+        f"env={os.environ.get('DOT_LEVEL')}"
+    )
+
+
+def test_dotenv_fills_declared_envvars_only(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert `.env` feeds `envvar=` options, skips secrets & stays private."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text(
+        "# a comment\n"
+        "export DOT_LEVEL=3\n"
+        '\nDOT_NAMES="a b"  # quoted keeps the space, the comment goes\n'
+        "DOT_ALT_B='single'\n"
+        "DOT_TOKEN=hunter2\n"
+    )
+    result = invoke(dot, ["dump"], config_files=True)
+    assert result.stdout == (
+        "level=3 token=None names=['a', 'b'] alt=single env=None\n"
+    )
+    assert result.stderr == ""
+
+
+def test_dotenv_below_the_environment_above_the_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert env > `.env` > project file."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".dot.toml").write_text("[dump]\nlevel = 4\n")
+    assert invoke(dot, ["dump"], config_files=True).stdout.startswith(
+        "level=4 "
+    )
+    (tmp_path / ".env").write_text("DOT_LEVEL=3\n")
+    assert invoke(dot, ["dump"], config_files=True).stdout.startswith(
+        "level=3 "
+    )
+    result = invoke(dot, ["dump"], env={"DOT_LEVEL": "5"}, config_files=True)
+    assert result.stdout.startswith("level=5 ")
+
+
+def test_dotenv_parse_rules_and_warnings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert comments, quotes & a BOM parse, and a bad line only warns."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_bytes(
+        b"\xef\xbb\xbfDOT_LEVEL=3 # trailing comment\n"
+        b"this is not a pair\n"
+        b"\n"
+        b"DOT_ALT_A=a # b\n"
+        b"9BAD=x\n"
+    )
+    result = invoke(dot, ["dump"], config_files=True)
+    assert result.stdout.startswith("level=3 token=None names=[] alt=a ")
+    assert result.stderr == (
+        "warning: .env:2: not KEY=VALUE, ignored\n"
+        "warning: .env:5: not KEY=VALUE, ignored\n"
+    )
+
+
+def test_dotenv_is_opt_in(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert `.env` is read only with `dotenv=True` & discovery on."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("DEMO_LEVEL=3\nDOT_LEVEL=3\n")
+    assert invoke(demo, ["show"], config_files=True).stdout.startswith(
+        "level=0 "
+    )
+    assert invoke(dot, ["dump"]).stdout.startswith("level=0 ")
+    (tmp_path / ".env").unlink()
+    assert invoke(dot, ["dump"], config_files=True).stdout.startswith(
+        "level=0 "
+    )
+
+
+def test_secret_pattern_is_shared_with_the_kit() -> None:
+    """Assert `.env` & ENV-15 use one `_SECRET` definition."""
+    from pyclig import _config, _conformance
+
+    assert _conformance._SECRET is _config._SECRET
+    assert _config._SECRET.search("DOT_TOKEN")
+    assert not _config._SECRET.search("DOT_TOKEN_FILE")

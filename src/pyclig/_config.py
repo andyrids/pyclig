@@ -22,7 +22,9 @@ is selected from it when it is named like the project file (e.g. a
 `pyproject.toml`), otherwise it is read whole. `prog sub --config FILE`
 applies it to `sub` & below.
 `--help`, `-v` & completion read no file, and `tomllib` is imported only
-when a file exists.
+when a file exists. With `dotenv=True`, `./.env` fills declared `envvar=`
+options the environment left empty (`read_dotenv`, `dotenv_value`): below
+the environment, above every file.
 
 License:
     SPDX-License-Identifier: Apache-2.0
@@ -30,7 +32,8 @@ License:
 
 import logging
 import os
-from collections.abc import Mapping
+import re
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -51,6 +54,20 @@ PROFILES = "profiles"
 
 SOURCES_KEY = "pyclig.config_sources"
 """The `ctx.meta` key holding the run's `Sources`."""
+
+_SECRET = re.compile(
+    r"(passw(or)?d|secrets?|tokens?|api[-_]?key|credentials?)$", re.I
+)
+"""A name ending in a secret word: `--password` yes, `--password-file` no.
+
+Shared by `.env`, which skips such keys, & the conformance kit (ENV-15).
+"""
+
+_PAIR = re.compile(r"(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)")
+"""A `.env` line: `KEY=value` or `export KEY=value`."""
+
+_QUOTED = re.compile(r"""(["'])(.*?)\1\s*(?:#.*)?""")
+"""A quoted `.env` value, optionally followed by a comment."""
 
 
 @dataclass(frozen=True)
@@ -199,6 +216,10 @@ class ConfigOption(_PrefixedOption):
         help_ahead = not set(ctx.help_option_names).isdisjoint(args)
         if ctx.resilient_parsing or state is None or help_ahead:
             return value, args
+        if ctx.parent is None and self.config.dotenv and state.discover:
+            state.dotenv = read_dotenv(
+                Path(".env"), logging.getLogger(state.package)
+            )
         explicit = value if isinstance(value, Path) else None
         profile = _profile(ctx, opts)
         if ctx.parent is None or explicit is not None or profile is not None:
@@ -383,6 +404,87 @@ def _check_shape(ctx: click.Context) -> None:
                 f"config: [{'.'.join([*below, name])}] must be a table, not "
                 f"{type(value).__name__}"
             )
+
+
+def read_dotenv(path: Path, logger: logging.Logger) -> dict[str, str]:
+    """Parse a `.env` file into a mapping, never touching `os.environ`.
+
+    NOTE: `KEY=value` & `export KEY=value` lines; `#` comments & blank lines
+    are skipped, an unquoted value loses a trailing ` # comment`, single or
+    double quotes are removed, and there are no escapes or `$VAR`
+    expansion. A key matching `_SECRET` is skipped: secrets come from a
+    file or STDIN. Any other line warns `.env:LINE: not KEY=VALUE, ignored`
+    & the rest is still read.
+
+    Args:
+        path: The file, read as `utf-8-sig`.
+        logger: The application logger, for the warnings.
+
+    Returns:
+        The values, empty when the file does not exist.
+
+    Raises:
+        ConfigError: When the file exists but cannot be read.
+    """
+    if not path.is_file():
+        return {}
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, ValueError) as error:
+        raise ConfigError(f"cannot read {path}: {error}") from error
+    values: dict[str, str] = {}
+    for number, raw in enumerate(text.splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        pair = _PAIR.fullmatch(line)
+        if pair is None:
+            logger.warning("%s:%d: not KEY=VALUE, ignored", path, number)
+            continue
+        key, value = pair.group(1), pair.group(2).strip()
+        quoted = _QUOTED.fullmatch(value)
+        if quoted is not None:
+            value = quoted.group(2)
+        else:
+            value = re.split(r"\s#", value, maxsplit=1)[0].rstrip()
+        if _SECRET.search(key):
+            logger.debug(
+                "%s: %s skipped - a secret comes from a file", path, key
+            )
+            continue
+        values[key] = value
+    return values
+
+
+def dotenv_value(
+    option: click.Option,
+    resolve: Callable[[click.Context], str | None],
+    ctx: click.Context,
+) -> str | None:
+    """Return the environment value of `option`, else its `.env` value.
+
+    NOTE: Wraps click's `resolve_envvar_value` per instance, so the real
+    environment keeps precedence & `.env` fills only a declared `envvar=`
+    that the environment left empty. `value_from_envvar` still splits the
+    result for `multiple=True` & `nargs`.
+
+    Args:
+        option: The option with `envvar=`.
+        resolve: click's `resolve_envvar_value`, bound to `option`.
+        ctx: The command's context.
+
+    Returns:
+        The value, or None when neither source has one.
+    """
+    value = resolve(ctx)
+    if value is not None:
+        return value
+    state = _run.state_of(ctx)
+    if state is None or not state.dotenv:
+        return None
+    envvar = option.envvar
+    names = [envvar] if isinstance(envvar, str) else list(envvar or ())
+    return next((state.dotenv[n] for n in names if state.dotenv.get(n)), None)
 
 
 def _merge(base: Mapping[str, Any], over: Mapping[str, Any]) -> Table:

@@ -23,13 +23,13 @@ License:
     SPDX-License-Identifier: Apache-2.0
 """
 
-import re
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 
 import click
 from click.testing import CliRunner
 
+from pyclig import _config
 from pyclig._core import Command
 from pyclig._exit import ExitCode
 
@@ -47,10 +47,8 @@ STANDARD_SHORT: dict[str, tuple[str, ...]] = {
 }
 """The standard short flags & the long forms the guidelines give them."""
 
-_SECRET = re.compile(
-    r"(passw(or)?d|secrets?|tokens?|api[-_]?key|credentials?)$", re.I
-)
-"""A name ending in a secret word: `--password` yes, `--password-file` no."""
+_SECRET = _config._SECRET
+"""A name ending in a secret word - shared with `.env`, which skips them."""
 _UNKNOWN_FLAG = "--pyclig-no-such-flag"
 _CLEARED = ("COLUMNS", "FORCE_COLOR", "NO_COLOR", "TTY_COMPATIBLE")
 

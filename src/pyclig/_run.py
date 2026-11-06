@@ -32,7 +32,7 @@ import os
 import re
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, TextIO
 
@@ -80,6 +80,8 @@ class State:
         discover: Whether config files are searched for; `--config` & the
             `<PROG>_CONFIG` file are read regardless.
         config_files: The config files read, lowest precedence first.
+        dotenv: The `./.env` values, read with `Config(dotenv=True)`; they
+            fill declared `envvar=` options & never reach `os.environ`.
     """
 
     out: Console
@@ -94,6 +96,7 @@ class State:
     format: Format = "plain"
     discover: bool = True
     config_files: tuple[Path, ...] = ()
+    dotenv: dict[str, str] = field(default_factory=dict)
 
     @property
     def can_prompt(self) -> bool:
