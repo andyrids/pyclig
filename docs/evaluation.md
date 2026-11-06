@@ -489,3 +489,53 @@ falsy-value and `-d`-after-variable tests pass without the feature; `80707cd` 4 
   `STDIN is a terminal` where WSL says `the secret is empty`. Pre-existing `isatty` (Round 4).
 - `prog show -v` is a usage error: `-v` stays root-only, as in 0.4.
 - Not verified this round: macOS, and `-X importtime` on 3.11 (3.13 was used).
+
+### Fixed after evaluation (0.5.0)
+
+Five fix commits, `1cfe92a` to `0e9d690`, re-checked by the same subprocess CLI on a rebuilt
+wheel. The help look-ahead went: a `ConfigError` is kept on `State.config_error` and raised in
+`Context.invoke` (`_core.py:116-118`) before any callback, and `Group.invoke` (`:763-776`)
+first resolves and parses the subcommand so its `--help` answers.
+
+1. `prog show --name --help`, `prog show -- --help` & `prog --config f show -- --help` now apply
+   the files (`files=[...]`, `region=explicit`): `test_help_as_a_value_does_not_skip_config`.
+2. `prog --config broken.toml --help` exits 0, as do `--help`, `show --help`, `sub --help`, `-v`
+   & completion with a broken project file; a run still exits 1:
+   `test_help_paths_exit_0_with_a_broken_file`.
+3. `prog help show` & `prog help sub leaf` exit 0 with a broken file: same test.
+4. Redefined rather than restored: a `--profile` at a subcommand layers over the application's
+   own `default_map` (`_config.py:300-310`, `BASE_KEY`), so `prog --profile alpha show --profile
+   beta` still prints `name=project` - beta replaces alpha for `show`, alpha keeps the root's
+   `region=user-alpha`: `test_profile_at_a_subcommand_layers_like_the_root`. One profile per
+   level is now the rule.
+5. `prog show --config f` records all four files: `test_config_files_records_every_file_applied`.
+
+Side effects under a deferred error were checked once each: in the normal case the subcommand
+is parsed once and every callback runs once (`--trace`, a value `--region`, an `envvar=`
+callback, the root callback); with a broken file the subcommand's option callbacks run once in
+the pre-parse, the root callback never runs, `--token-file -` consumes STDIN once and the run
+exits 1 (`test_config_error_precedes_every_callback`). A usage error found in the pre-parse
+(`show --bogus`, 2) wins over the config error (1), which is fine. Bare `prog` with a broken file
+exits 1 with the error instead of concise help - unchanged from the evaluated tree, consistent
+with "no application code runs on defaults that miss the config" (the root callback runs before
+the concise help), and the plan's table names `--help`, `-v` & completion only. Acceptable.
+
+New in the fixes:
+
+- Defect 6: `prog sub leaf --help` with a broken file exits 1 on Windows & WSL: the pre-parse in
+  `Group.invoke` (`_core.py:771-775`) resolves one level, so a nested group's `leaf --help` sits
+  in `sub`'s protected arguments when the error is raised. `prog sub --help` & `prog help sub
+  leaf` exit 0. Before the fixes the look-ahead gave 0.
+- Defect 7: A `prompt=True` option is asked before the deferred error (WSL pty: `Answer:` then
+  `error: aborted` on EOF): the pre-parse prompts for a value the run will never use.
+  `options.secret` reading a file or STDIN behaves the same way, harmlessly.
+
+Consumers on the rebuilt wheel, unmodified: dkais 134 passed, pkgdx 242 passed, the generated
+`cli=True` project 5 passed & `evaltool help` exit 0.
+
+Every commit from `78fb383` to `0e9d690` was tested on its own tree, installed from a scratch
+worktree into a venv holding only click, rich & pytest (an environment with the main repo's
+editable install contaminates the subprocess tests, which build a clean `env=`). All 18 pass
+except `b851998`: 2 failed, `test_help_paths_exit_0_with_a_broken_file[sub-help]` &
+`test_config_error_precedes_every_callback`, green again at `0e9d690`. For a bisect, treat
+`b851998` as a known-red commit. The gate at `0e9d690`: 370 passed, mypy clean, 97% coverage.
