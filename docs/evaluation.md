@@ -539,3 +539,20 @@ editable install contaminates the subprocess tests, which build a clean `env=`).
 except `b851998`: 2 failed, `test_help_paths_exit_0_with_a_broken_file[sub-help]` &
 `test_config_error_precedes_every_callback`, green again at `0e9d690`. For a bisect, treat
 `b851998` as a known-red commit. The gate at `0e9d690`: 370 passed, mypy clean, 97% coverage.
+
+Re-checked after `c4cadd5`, which replaced the pre-parse: while a config error is pending a group
+that is descending to a subcommand skips its callback, the first callback that would run raises,
+and a prompt raises instead of prompting. On a rebuilt wheel, by subprocess:
+
+- Defect 6 fixed: `prog sub leaf --help` & `prog help sub leaf` exit 0 with a broken file on
+  Windows & WSL, as do `--help`, `show --help`, `sub --help`, `iwc --help`, `-v` &
+  `--config bad.toml --help`: `test_help_paths_exit_0_with_a_broken_file[nested-help]`.
+- Defect 7 fixed: on a WSL pty `prog ask` prints the config error with no `Answer:` prompt; a
+  piped STDIN gives the same: `test_config_error_precedes_every_callback` (the `ask` case).
+- Defects 1-5 still hold (same repros, same output). A broken run exits 1 with the root `--trace`
+  callback run once and no root, `sub` or leaf callback; `--token-file -` consumes nothing the
+  run would reuse. An `invoke_without_command=True` group with a broken file exits 1, callback
+  not run, and its `--help` exits 0. Normal runs are unchanged: root, `sub` & leaf callbacks run
+  once each in order, `iwc` runs its callback, the prompt is asked once on a pty.
+- Gate at `c4cadd5`: 371 passed, mypy clean. Consumers on the rebuilt wheel, unmodified: dkais 134
+  passed, pkgdx 242 passed, the generated `cli=True` project 5 passed & `evaltool help` exit 0.
