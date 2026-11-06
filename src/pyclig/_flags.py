@@ -9,8 +9,9 @@
 
 `RUN_FLAGS` are on every `pyclig.Command`; an application declares its own
 with `click.option(..., cls=pyclig.GlobalOption)` on the command whose
-subtree accepts it, usually the root group. A command's own option with the
-same spelling wins: the run flag keeps its other names, or steps aside.
+subtree accepts it, usually the root group - a flag, or with `type=` an
+option taking a value. A command's own option with the same spelling wins:
+the run flag keeps its other names, or steps aside.
 
 License:
     SPDX-License-Identifier: Apache-2.0
@@ -21,46 +22,63 @@ from collections.abc import Callable, Collection, Sequence
 from typing import Any
 
 import click
+from click.core import ParameterSource
 
 from pyclig import _logging, _output, _run
 
+_DEFAULT = ParameterSource.DEFAULT
+"""The source of a value that was not given, so a callback must not run."""
+
 
 class GlobalOption(click.Option):
-    """A run flag, accepted on its command & every command below it.
+    """A run option, accepted on its command & every command below it.
 
     NOTE: Eager & never passed to the command function: the callback runs
-    as soon as the flag is parsed, before or after a command name, so `-d`
-    applies even when a later option is invalid. It runs only when the flag
-    was given - on the command line or through `envvar=` - and may run once
-    per level of a nested command line that sees it, so it must be
-    idempotent.
+    as soon as the option is parsed, before or after a command name, so
+    `-d` applies even when a later option is invalid. It runs only when the
+    option was given - on the command line, through `envvar=` or from the
+    `default_map` (so a config file) - never for its `default=`, and may
+    run once per level of a nested command line that sees it, so it must
+    be idempotent. Without `type=` it is a flag; with one (or
+    `is_flag=False`) it takes a value, which the callback shares with the
+    commands below, e.g. `ctx.meta["app.region"] = value`.
     """
 
     def __init__(
         self,
         param_decls: Sequence[str],
         *,
-        callback: Callable[[click.Context, click.Parameter, bool], Any],
+        callback: Callable[[click.Context, click.Parameter, Any], Any],
         **kwargs: Any,
     ) -> None:
-        """Create the flag.
+        """Create the option.
 
         Args:
-            param_decls: The flag names, e.g. `["--trace"]`.
-            callback: Called with the context, this flag & True wherever
-                the flag was given; never for its default.
-            **kwargs: Keyword `click.Option` arguments, e.g. `help`.
+            param_decls: The option names, e.g. `["--trace"]`.
+            callback: Called with the context, this option & its value -
+                True for a flag - wherever it was given; never for its
+                default.
+            **kwargs: Keyword `click.Option` arguments, e.g. `help`. An
+                explicit `is_flag=` wins; otherwise `type=` means a value.
         """
+        is_flag = kwargs.pop("is_flag", None)
+        if is_flag is None:
+            is_flag = "type" not in kwargs
 
         def when_given(
-            ctx: click.Context, param: click.Parameter, value: bool
+            ctx: click.Context, param: click.Parameter, value: Any
         ) -> None:
-            if value:
+            if is_flag:
+                given = bool(value)
+            else:
+                source = ctx.get_parameter_source(param.name or "")
+                given = value is not None and source is not _DEFAULT
+            if given:
                 callback(ctx, param, value)
 
         super().__init__(
             param_decls,
-            is_flag=True,
+            is_flag=is_flag,
             is_eager=True,
             expose_value=False,
             callback=when_given,
