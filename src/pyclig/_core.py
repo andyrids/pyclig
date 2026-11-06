@@ -760,6 +760,20 @@ class Group(Command, click.Group):
         Returns:
             The subcommand's return value.
         """
+        state = _run.state_of(ctx)
+        if (
+            state is not None
+            and state.config_error is not None
+            and not ctx.resilient_parsing
+        ):
+            # Let `help sub` & `sub --help` answer first (they exit here),
+            # then fail before this group's own callback runs
+            args = [*getattr(ctx, "_protected_args", ()), *ctx.args]
+            if args:
+                name, cmd, rest = self.resolve_command(ctx, args)
+                if cmd is not None:
+                    cmd.make_context(name, rest, parent=ctx)
+            raise state.config_error
         result = super().invoke(ctx)
         if ctx.invoked_subcommand is None:
             click.echo(self.get_concise_help(ctx))
