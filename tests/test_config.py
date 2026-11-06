@@ -634,3 +634,19 @@ def test_help_paths_exit_0_with_a_broken_file(
     result = run(dirs, ["--config", str(broken), "show"])
     assert result.exit_code == 1
     assert result.stderr.startswith(f"error: cannot read config {broken}: ")
+
+
+def test_profile_at_a_subcommand_layers_like_the_root(dirs: Dirs) -> None:
+    """Assert `--profile a show --profile b` layers as `--profile b show`."""
+    dirs.project.write_text(
+        'region = "project"\n[show]\nlevel = 4\n'
+        '[profiles.alpha]\nregion = "alpha"\n'
+        '[profiles.alpha.show]\nlevel = 5\ntags = ["a"]\n'
+        "[profiles.beta.show]\nlevel = 6\n"
+    )
+    root = run(dirs, ["--profile", "beta", "show"]).stdout
+    assert root.startswith("level=6 tags=[] region=project ")
+    result = run(dirs, ["--profile", "alpha", "show", "--profile", "beta"])
+    assert result.stdout.startswith("level=6 tags=[] region=alpha ")
+    result = run(dirs, ["show", "--profile", "alpha"])
+    assert result.stdout.startswith("level=5 tags=['a'] region=project ")

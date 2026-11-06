@@ -56,6 +56,9 @@ PROFILES = "profiles"
 SOURCES_KEY = "pyclig.config_sources"
 """The `ctx.meta` key holding the run's `Sources`."""
 
+BASE_KEY = "pyclig.config_base"
+"""The `ctx.meta` key holding the application's own root `default_map`."""
+
 _SECRET = re.compile(
     r"(passw(or)?d|secrets?|tokens?|api[-_]?key|credentials?)$", re.I
 )
@@ -293,7 +296,16 @@ def _apply(
     if profile is not None:
         docs += _profile_sections(ctx, profile, layers)
     below = _below_root(ctx)
-    merged: Table = dict(ctx.default_map or {})
+    # Layer over the application's own map, never over an earlier apply,
+    # so a profile given at a subcommand layers as one given at the root
+    if ctx.parent is None:
+        ctx.meta[BASE_KEY] = dict(ctx.default_map or {})
+    base = ctx.meta.get(BASE_KEY)
+    merged: Table = (
+        _descend(base, below)
+        if base is not None
+        else dict(ctx.default_map or {})
+    )
     for doc in docs:
         merged = _merge(merged, _descend(doc, below))
     ctx.default_map = merged
