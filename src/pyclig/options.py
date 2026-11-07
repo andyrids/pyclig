@@ -15,6 +15,7 @@ the flag in the application's own terms.
 | `output()`      | `-o`, `--output`  | `output`      |              |
 | `port()`        | `-p`, `--port`    | `port`        |              |
 | `user()`        | `-u`, `--user`    | `user`        |              |
+| `timeout()`     | `--timeout SECONDS` | `timeout`   |              |
 
 The format flags go on the commands that produce records, so help never
 advertises a flag a command ignores. `--json` wins over `--plain` in any
@@ -321,5 +322,32 @@ def user(
         default=default,
         envvar=envvar,
         metavar="NAME",
+        help=help,
+    )
+
+
+def timeout(
+    *,
+    default: float = 30.0,
+    help: str = "Give up after SECONDS.",  # noqa: A002 - click's own keyword
+    envvar: str | None = None,
+) -> Callable[[FC], FC]:
+    """Add `--timeout SECONDS`, a positive float, passed as `timeout`.
+
+    Args:
+        default: The default timeout, shown in help.
+        help: The option's help text.
+        envvar: An environment variable supplying the value.
+
+    Returns:
+        The option decorator.
+    """
+    return click.option(
+        "--timeout",
+        type=click.FloatRange(min=0, min_open=True),
+        default=default,
+        show_default=True,
+        envvar=envvar,
+        metavar="SECONDS",
         help=help,
     )

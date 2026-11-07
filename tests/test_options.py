@@ -230,3 +230,56 @@ def test_kit_is_clean_on_every_factory() -> None:
         """Accept every standard option."""
 
     assert_conforms(kit)
+
+
+@pyclig.group("net")
+def net_cli() -> None:
+    """Fetch things."""
+
+
+@net_cli.command()
+@pyclig.options.timeout(envvar="NET_TIMEOUT")
+def fetch(timeout: float) -> None:
+    """Print the timeout."""
+    click.echo(repr(timeout))
+
+
+def test_timeout_default_shown_in_help() -> None:
+    """Assert `--timeout SECONDS` shows its 30.0 default in help."""
+    help_text = invoke(net_cli, ["fetch", "--help"]).stdout
+    assert "--timeout SECONDS" in help_text
+    assert "30.0" in help_text
+
+
+def test_timeout_default_and_float_parsing() -> None:
+    """Assert the default is 30.0 & a value parses as a float."""
+    assert invoke(net_cli, ["fetch"]).stdout == "30.0\n"
+    assert invoke(net_cli, ["fetch", "--timeout", "2.5"]).stdout == "2.5\n"
+    assert invoke(net_cli, ["fetch", "--timeout", "5"]).stdout == "5.0\n"
+
+
+@pytest.mark.parametrize("value", ["0", "-1", "-0.5", "abc"])
+def test_timeout_rejects_non_positive(value: str) -> None:
+    """Assert zero, negative & non-numeric values are usage errors."""
+    result = invoke(net_cli, ["fetch", "--timeout", value])
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+
+
+def test_timeout_envvar() -> None:
+    """Assert `envvar=` supplies the value."""
+    result = invoke(net_cli, ["fetch"], env={"NET_TIMEOUT": "7"})
+    assert result.stdout == "7.0\n"
+
+
+def test_timeout_custom_default_and_help() -> None:
+    """Assert `default=` & `help=` override the defaults."""
+
+    @pyclig.command("one")
+    @pyclig.options.timeout(default=5.0, help="Give up after SECONDS.")
+    def one(timeout: float) -> None:
+        """Print the timeout."""
+        click.echo(repr(timeout))
+
+    assert invoke(one, []).stdout == "5.0\n"
+    assert "Give up after SECONDS." in invoke(one, ["--help"]).stdout
