@@ -15,6 +15,7 @@ License:
 
 import contextlib
 import functools
+import logging
 import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
@@ -226,6 +227,36 @@ class Context(click.Context):
             yield
             return
         with self.out.pager(pager=_output._ClickPager(), styles=True):
+            yield
+
+    @contextlib.contextmanager
+    def logs_on_failure(self, *, level: int = logging.INFO) -> Iterator[None]:
+        """Hold the block's info logs & show them only if it fails.
+
+        ```python
+        with ctx.logs_on_failure():
+            for step in steps:
+                logger.info("ran %s", step)
+                run(step)
+        ```
+
+        Records from `level` up to `WARNING` are held; warnings & errors
+        print at once. If an exception leaves the block, the held lines
+        print before it propagates, so `error:` is still last; on success,
+        `Abort`, `Exit` or Ctrl-C they are dropped. Raise to fail: a
+        failure the block only logs replays nothing. `-q` still hides the
+        replayed lines, and under `-d` every record prints live. A
+        `<PROG>_LOG_FILE` gets every record either way. Keep the block
+        outside `progress` & `status`, so the replay is not drawn over.
+
+        Args:
+            level: The lowest level held, e.g. `logging.DEBUG`.
+
+        Yields:
+            Nothing; the held lines print if the block raises.
+        """
+        state = _require_state(self)
+        with _logging.held(state.package, level=level, debug=state.debug):
             yield
 
     @contextlib.contextmanager

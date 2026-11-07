@@ -8,6 +8,7 @@ import warnings
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import click
 import pytest
 
 import pyclig
@@ -387,3 +388,128 @@ def test_log_file_variable_cleared_by_invoke(
     monkeypatch.setenv("TESTS_LOG_FILE", str(path))
     invoke(sample, ["log"])
     assert not path.exists()
+
+
+def _holding(
+    end: str = "ok", *, live: bool = False
+) -> tuple[pyclig.Command, list[tuple[int, list[logging.Handler]]]]:
+    """Return a CLI logging inside `ctx.logs_on_failure`, then ending `end`.
+
+    The list records the package logger's level & handlers after the block.
+    """
+    after: list[tuple[int, list[logging.Handler]]] = []
+    log = logging.getLogger("tests.held")
+
+    @pyclig.command("probe")
+    @pyclig.pass_context
+    def probe(ctx: pyclig.Context) -> None:
+        """Log inside the block, then succeed, fail or abort."""
+        package = logging.getLogger("tests")
+        try:
+            with ctx.logs_on_failure():
+                with (
+                    pyclig.progress(ctx.err)
+                    if live
+                    else contextlib.nullcontext()
+                ):
+                    log.debug("held debug")
+                    log.info("held step one")
+                    log.warning("live warning")
+                    log.info("held step two")
+                    if end == "fail":
+                        raise RuntimeError("boom")
+                    if end == "abort":
+                        raise click.Abort
+        finally:
+            after.append((package.level, package.handlers[:]))
+
+    return probe, after
+
+
+def test_held_logs_replayed_before_error() -> None:
+    """Assert a failing block replays its info lines, then `error:` prints."""
+    cli, _ = _holding("fail")
+    result = invoke(cli, [])
+    lines = [x for x in result.stderr.splitlines() if not x.startswith(" ")]
+    held = [x for x in lines if "held" in x or "warning" in x or "error" in x]
+    assert held[:3] == [
+        "warning: live warning",
+        "held step one",
+        "held step two",
+    ]
+    assert held[-1] == "error: unexpected RuntimeError: boom"
+    assert "held debug" not in result.stderr
+    assert result.stderr.count("live warning") == 1
+
+
+def test_held_logs_dropped_on_success() -> None:
+    """Assert a block that succeeds prints only its warnings."""
+    cli, _ = _holding()
+    result = invoke(cli, [])
+    assert result.stderr.splitlines() == ["warning: live warning"]
+
+
+def test_held_logs_not_replayed_on_abort() -> None:
+    """Assert `Abort` from the block replays nothing."""
+    cli, _ = _holding("abort")
+    result = invoke(cli, [])
+    assert result.exit_code == 1
+    assert "held step" not in result.stderr
+
+
+def test_held_logs_no_op_under_debug() -> None:
+    """Assert `-d` prints every record once, live."""
+    cli, _ = _holding("fail")
+    result = invoke(cli, ["-d"])
+    for message in ("held debug", "held step one", "live warning"):
+        assert result.stderr.count(message) == 1
+
+
+def test_held_logs_hidden_under_quiet() -> None:
+    """Assert `-q` drops replayed info lines & keeps the error."""
+    cli, _ = _holding("fail")
+    result = invoke(cli, ["-q"])
+    assert "held step" not in result.stderr
+    assert "warning: live warning" in result.stderr
+    assert "error: unexpected RuntimeError: boom" in result.stderr
+
+
+@pytest.mark.parametrize("end", ["ok", "fail"])
+def test_held_logs_in_the_file(tmp_path: Path, end: str) -> None:
+    """Assert the debug log file gets every record, held or not."""
+    path = tmp_path / "debug.log"
+    cli, _ = _holding(end)
+    invoke(cli, [], env={"TESTS_LOG_FILE": str(path)})
+    text = path.read_text(encoding="utf-8")
+    for message in ("held debug", "held step one", "held step two"):
+        assert text.count(message) == 1
+
+
+@pytest.mark.parametrize("end", ["ok", "fail", "abort"])
+def test_held_logs_state_restored(end: str) -> None:
+    """Assert the package logger's level & handlers are as before the block."""
+    cli, after = _holding(end)
+    seen: list[tuple[int, list[logging.Handler]]] = []
+
+    @pyclig.command("probe")
+    def before() -> None:
+        """Record the package logger before any block."""
+        package = logging.getLogger("tests")
+        seen.append((package.level, package.handlers[:]))
+
+    invoke(before, [])
+    invoke(cli, [])
+    assert after[0][0] == seen[0][0]
+    assert [type(h) for h in after[0][1]] == [type(h) for h in seen[0][1]]
+
+
+def test_held_logs_inside_progress_not_garbled() -> None:
+    """Assert a replay inside a live progress display prints whole lines."""
+    cli, _ = _holding("fail", live=True)
+    result = invoke(
+        cli, [], env={"TTY_INTERACTIVE": "1", "TTY_COMPATIBLE": "1"}
+    )
+    plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\r", "\n", result.stderr)
+    lines = [x.strip() for x in plain.splitlines() if x.strip()]
+    for message in ("held step one", "held step two", "warning: live warning"):
+        assert message in lines

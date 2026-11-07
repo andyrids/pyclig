@@ -28,6 +28,7 @@ License:
     SPDX-License-Identifier: Apache-2.0
 """
 
+import collections
 import contextlib
 import logging
 import warnings
@@ -36,6 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
+import click
 from rich.console import Console
 from rich.text import Text
 
@@ -245,6 +247,70 @@ def scoped(name: str) -> Generator[None, None, None]:
         _remove_handlers(logging.root)
         if shown is not None:
             warnings.showwarning = shown
+
+
+@contextlib.contextmanager
+def held(name: str, *, level: int, debug: bool) -> Generator[None, None, None]:
+    """Hold the `name` logger's records below `WARNING`, shown on failure.
+
+    NOTE: The logger is lowered to `level` for the block; the console
+    handler keeps its level, so a held handler keeps the records it drops
+    (up to 1000). If an `Exception` other than `click.Abort` or
+    `click.exceptions.Exit` leaves the block, they are replayed through the
+    console handler before it propagates; otherwise they are dropped. A
+    debug log file still gets every record live. A no-op with `debug`.
+
+    Args:
+        name: The logger name.
+        level: The lowest level held.
+        debug: Whether the run logs at `DEBUG`, which shows every record.
+
+    Yields:
+        None, while the block runs.
+    """
+    logger = logging.getLogger(name)
+    console = next(
+        (
+            h
+            for h in logger.handlers
+            if getattr(h, _MARKER, False) and not isinstance(h, _LogFile)
+        ),
+        None,
+    )
+    if debug or console is None:
+        yield
+        return
+    saved = logger.level
+    holder = _Held(level)
+    logger.addHandler(holder)
+    if not saved or level < saved:
+        logger.setLevel(level)
+    try:
+        yield
+    except (click.Abort, click.exceptions.Exit):
+        raise
+    except Exception:
+        logger.removeHandler(holder)
+        for record in holder.records:
+            console.handle(record)
+        raise
+    finally:
+        logger.removeHandler(holder)
+        logger.setLevel(saved)
+
+
+class _Held(logging.Handler):
+    """Keep the records below `WARNING`, the newest 1000, for `held`."""
+
+    def __init__(self, level: int) -> None:
+        super().__init__(level)
+        self.records: collections.deque[logging.LogRecord] = collections.deque(
+            maxlen=1000
+        )
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if record.levelno < logging.WARNING:
+            self.records.append(record)
 
 
 def _handler(console: Console, *, debug: bool) -> logging.Handler:
