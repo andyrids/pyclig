@@ -9,7 +9,8 @@ Ctrl-C or its own errors to print a tailored message first.
 | `return code`              | -                                    | code   |
 | `click.UsageError`         | `error:`, usage & `--help` hint      | 2      |
 | Other `ClickException`     | `error:`                             | its    |
-| Ctrl-C                     | `warning: interrupted`               | 130    |
+| Ctrl-C or Ctrl-Break       | `warning: interrupted`               | 130    |
+| SIGTERM                    | `warning: terminated`                | 143    |
 | `click.Abort` (declined)   | `error: aborted`                     | 1      |
 | Exception in `errors`      | `error:` (traceback first with `-d`) | 1      |
 | Broken STDOUT pipe         | - (the reader left, e.g. `head`)     | 1      |
@@ -20,6 +21,9 @@ message, where the eye lands) & an `exit_code` replacing 1 - honoured only
 when it is a non-zero, non-bool `int`, since an error must not exit 0. Both
 are read by attribute, so the application's exceptions need no pyclig
 import.
+
+A signal's notice is printed at once by the run's handler (`_signals`),
+before the stack unwinds to the runner, which then only maps the code.
 
 License:
     SPDX-License-Identifier: Apache-2.0
@@ -39,6 +43,7 @@ from typing import Any, Literal, TextIO
 import click
 from rich.console import Console
 
+from pyclig import _signals
 from pyclig._exit import ExitCode
 from pyclig._output import _plain, hint, notice, print_exception
 
@@ -84,6 +89,10 @@ class State:
             fill declared `envvar=` options & never reach `os.environ`.
         config_error: The first error met reading the config files, raised
             when a command is invoked, so help & version never fail on it.
+        signal: The signal received, recorded by the run's handler.
+        announced: Whether the handler has printed the signal's notice.
+        cleaning: The depth of active clean-up blocks, inside which a
+            first signal is recorded but does not raise.
     """
 
     out: Console
@@ -100,6 +109,9 @@ class State:
     config_files: tuple[Path, ...] = ()
     dotenv: dict[str, str] = field(default_factory=dict)
     config_error: click.ClickException | None = None
+    signal: int | None = None
+    announced: bool = False
+    cleaning: int = 0
 
     @property
     def can_prompt(self) -> bool:
@@ -351,6 +363,9 @@ def bug_hint(prog: str, package: str) -> str | None:
 def execute(func: Callable[[], object], state: State, *, prog: str) -> int:
     """Call `func` & map its outcome to an exit code (see module table).
 
+    NOTE: A signal while the outcome is being reported raises out of the
+    report; the run then exits at once with the signal's code.
+
     Args:
         func: The command, returning an exit code or None.
         state: The run's state.
@@ -359,6 +374,14 @@ def execute(func: Callable[[], object], state: State, *, prog: str) -> int:
     Returns:
         The process exit code.
     """
+    try:
+        return _execute(func, state, prog=prog)
+    except KeyboardInterrupt:
+        return _signals.exit_code(state)
+
+
+def _execute(func: Callable[[], object], state: State, *, prog: str) -> int:
+    """Call `func` & report its outcome (see module table)."""
     try:
         result = func()
         sys.stdout.flush()
@@ -372,9 +395,9 @@ def execute(func: Callable[[], object], state: State, *, prog: str) -> int:
         notice(state.err, level="error", message=error.format_message())
         return error.exit_code
     except (KeyboardInterrupt, Interrupted):
-        return _interrupted(state.err)
+        return _interrupted(state)
     except click.Abort as error:
-        return _aborted(state.err, error)
+        return _aborted(state, error)
     except Escaped as escaped:
         return _failed(escaped.error, state, prog)
     except Exception as error:
@@ -411,15 +434,20 @@ def help_hint(ctx: click.Context) -> str | None:
     return f"Try '{ctx.command_path} {names[0]}' for more information."
 
 
-def _interrupted(err: Console) -> int:
-    """Report Ctrl-C & return `ExitCode.INTERRUPT`."""
-    if err.is_terminal:
-        err.line()
-    notice(err, level="warning", message="interrupted")
-    return ExitCode.INTERRUPT
+def _interrupted(state: State) -> int:
+    """Report an interrupt, unless its handler has, & return its code.
+
+    NOTE: A `KeyboardInterrupt` raised by code - a mocked STDIN, a test -
+    records no signal, so it is reported here, after unwinding, as 130.
+    """
+    if not state.announced:
+        if state.err.is_terminal:
+            state.err.line()
+        notice(state.err, level="warning", message=_signals.message(state))
+    return _signals.exit_code(state)
 
 
-def _aborted(err: Console, error: click.Abort) -> int:
+def _aborted(state: State, error: click.Abort) -> int:
     """Report a declined or interrupted prompt & return its exit code.
 
     NOTE: click raises `Abort` from None at a prompt, so the Ctrl-C or EOF
@@ -428,7 +456,8 @@ def _aborted(err: Console, error: click.Abort) -> int:
     """
     cause = error.__cause__ or error.__context__
     if isinstance(cause, KeyboardInterrupt):
-        return _interrupted(err)
+        return _interrupted(state)
+    err = state.err
     eof = isinstance(cause, EOFError)
     # EOF on a Windows console is Ctrl-Z + Enter: the Enter ends the line
     if eof and err.is_terminal and sys.platform != "win32":

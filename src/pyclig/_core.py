@@ -30,7 +30,7 @@ from typing import (
 import click
 from rich.console import Console
 
-from pyclig import _config, _flags, _logging, _output, _run
+from pyclig import _config, _flags, _logging, _output, _run, _signals
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
 
@@ -700,7 +700,7 @@ class Command(click.Command):
         )
         _run.apply_environment(state)
         click_main = super().main
-        with _logging.scoped(package):
+        with _signals.scoped(state), _logging.scoped(package):
             _logging.configure(package, err, debug=state.debug)
             code = _run.execute(
                 lambda: click_main(
@@ -1025,7 +1025,7 @@ def run(
     )
     _run.apply_environment(state)
     ctx = Context(click.Command(prog), info_name=prog, pyclig_state=state)
-    with _logging.scoped(state.package), ctx:
+    with _signals.scoped(state), _logging.scoped(state.package), ctx:
         _logging.configure(state.package, err, debug=state.debug)
         code = _run.execute(func, state, prog=prog)
     sys.exit(code)
