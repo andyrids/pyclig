@@ -43,7 +43,7 @@ from typing import Any, Literal, TextIO
 import click
 from rich.console import Console
 
-from pyclig import _signals
+from pyclig import _logging, _signals
 from pyclig._exit import ExitCode
 from pyclig._output import _plain, hint, notice, print_exception
 
@@ -94,6 +94,7 @@ class State:
         cleaning: The depth of active `ctx.cleanup` blocks, inside which
             a first signal is recorded but does not raise.
         watcher: The outermost active block's watcher thread, or None.
+        log_file: The debug log file, from `<PROG>_LOG_FILE`, or None.
     """
 
     out: Console
@@ -114,6 +115,7 @@ class State:
     announced: bool = False
     cleaning: int = 0
     watcher: _signals.Watcher | None = None
+    log_file: Path | None = None
 
     @property
     def can_prompt(self) -> bool:
@@ -144,13 +146,14 @@ _FALSE = frozenset({"", "0", "false", "no", "off"})
 
 
 def apply_environment(state: State) -> None:
-    """Honour `<PROG>_DEBUG` & `<PROG>_NO_COLOR` before any option is parsed.
+    """Honour `<PROG>_DEBUG`, `<PROG>_NO_COLOR` & `<PROG>_LOG_FILE` first.
 
     NOTE: A variable is on when set, non-empty & not `0`, `false`, `no` or
     `off`, unlike bare `NO_COLOR`, which Rich honours whenever it is set.
     Neither is shown in `--help`. A later `-d` or `--no-color` is a no-op.
     `-d` from the variable means the whole run, parsing included, logs at
-    `DEBUG`, so the caller configures logging from `state.debug`.
+    `DEBUG`, so the caller configures logging from `state.debug`. A
+    non-blank `<PROG>_LOG_FILE` names the debug log file, `state.log_file`.
 
     Args:
         state: The run's state, with the consoles to drop colour from.
@@ -161,6 +164,9 @@ def apply_environment(state: State) -> None:
     if _truthy(os.environ.get(f"{prefix}_NO_COLOR")):
         state.out.no_color = True
         state.err.no_color = True
+    log_file = os.environ.get(f"{prefix}_LOG_FILE", "").strip()
+    if log_file:
+        state.log_file = Path(log_file)
 
 
 def _truthy(value: str | None) -> bool:
@@ -498,6 +504,9 @@ def _failed(error: Exception, state: State, prog: str) -> int:
     report = bug_hint(prog, state.package)
     if report:
         hint(state.err, message=report)
+    written = _logging.log_failure(state.package, error)
+    if written:
+        hint(state.err, message=f"debug log: {written}")
     return ExitCode.INTERNAL
 
 

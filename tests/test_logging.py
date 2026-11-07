@@ -6,6 +6,7 @@ import logging
 import re
 import warnings
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 import pytest
 
@@ -297,3 +298,92 @@ def test_warning_to_an_explicit_file_printed_there(
         result = invoke(probe, [])
     assert stream.getvalue() == "lib.py:3: UserWarning: old api\n"
     assert "old api" not in result.stderr
+
+
+def test_log_file_gets_debug_records(sample: Group, tmp_path: Path) -> None:
+    """Assert `<PROG>_LOG_FILE` gets every record; the console is as before."""
+    path = tmp_path / "debug.log"
+    plain = invoke(sample, ["log"])
+    result = invoke(sample, ["log"], env={"TESTS_LOG_FILE": str(path)})
+    assert result.stderr == plain.stderr
+    lines = path.read_text(encoding="utf-8").splitlines()
+    levels = [
+        m["level"] for line in lines if (m := PLAIN_RECORD.fullmatch(line))
+    ]
+    assert levels == ["DEBUG", "INFO", "WARNING", "ERROR"]
+
+
+def test_log_file_appended(sample: Group, tmp_path: Path) -> None:
+    """Assert a second run appends to the log file."""
+    path = tmp_path / "debug.log"
+    for _ in range(2):
+        invoke(sample, ["log"], env={"TESTS_LOG_FILE": str(path)})
+    assert path.read_text(encoding="utf-8").count("debug record") == 2
+
+
+def test_log_file_with_debug(sample: Group, tmp_path: Path) -> None:
+    """Assert `-d` prints records to the console & the file alike."""
+    path = tmp_path / "debug.log"
+    result = invoke(sample, ["-d", "log"], env={"TESTS_LOG_FILE": str(path)})
+    assert result.stderr.count("debug record") == 1
+    assert path.read_text(encoding="utf-8").count("debug record") == 1
+
+
+@pytest.mark.filterwarnings("default")
+def test_log_file_gets_root_records(
+    bare_root: BareRoot, tmp_path: Path
+) -> None:
+    """Assert library records & warnings reach the file from a bare root."""
+    path = tmp_path / "debug.log"
+    with bare_root():
+        result = invoke(_third_party(), [], env={"TESTS_LOG_FILE": str(path)})
+        assert logging.root.handlers == []
+    text = path.read_text(encoding="utf-8")
+    assert "library notice" in text
+    assert "old api" in text
+    assert "library detail" not in result.stderr
+
+
+def test_log_file_gets_crash_traceback(sample: Group, tmp_path: Path) -> None:
+    """Assert exit 70 writes the traceback to the file & prints a hint."""
+    path = tmp_path / "debug.log"
+    result = invoke(
+        sample, ["fail", "--kind", "crash"], env={"TESTS_LOG_FILE": str(path)}
+    )
+    assert result.exit_code == 70
+    assert f"debug log: {path}" in result.stderr.splitlines()
+    text = path.read_text(encoding="utf-8")
+    assert "Traceback (most recent call last)" in text
+    assert "unexpected" in text
+
+
+def test_log_file_unwritable_warns(sample: Group, tmp_path: Path) -> None:
+    """Assert a log file that cannot be opened warns & the run goes on."""
+    result = invoke(sample, ["log"], env={"TESTS_LOG_FILE": str(tmp_path)})
+    assert result.exit_code == 0
+    first = result.stderr.splitlines()[0]
+    assert first.startswith(
+        f"warning: cannot write the debug log to {tmp_path}: "
+    )
+    assert "warning record" in result.stderr
+
+
+def test_log_file_closed_after_run(sample: Group, tmp_path: Path) -> None:
+    """Assert the file is closed when the run ends, so it can be removed."""
+    path = tmp_path / "debug.log"
+    invoke(sample, ["-d", "log"], env={"TESTS_LOG_FILE": str(path)})
+    path.unlink()
+    for logger in (logging.getLogger("tests"), logging.root):
+        assert not [
+            h for h in logger.handlers if hasattr(h, "_pyclig_handler")
+        ]
+
+
+def test_log_file_variable_cleared_by_invoke(
+    sample: Group, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert `invoke` unsets an inherited `<PROG>_LOG_FILE`."""
+    path = tmp_path / "debug.log"
+    monkeypatch.setenv("TESTS_LOG_FILE", str(path))
+    invoke(sample, ["log"])
+    assert not path.exists()

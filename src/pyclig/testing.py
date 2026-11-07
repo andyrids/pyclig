@@ -45,7 +45,7 @@ _CLEARED = (
 )
 """Environment variables that change Rich's output, unset by default."""
 
-_PREFIXED = ("DEBUG", "NO_COLOR", "CONFIG", "PROFILE")
+_PREFIXED = ("DEBUG", "NO_COLOR", "CONFIG", "PROFILE", "LOG_FILE")
 """The `<PROG>_` variables a run reads, unset by default."""
 
 

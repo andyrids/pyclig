@@ -736,7 +736,9 @@ class Command(click.Command):
         _run.apply_environment(state)
         click_main = super().main
         with _signals.scoped(state), _logging.scoped(package):
-            _logging.configure(package, err, debug=state.debug)
+            _logging.configure(
+                package, err, debug=state.debug, log_file=state.log_file
+            )
             code = _run.execute(
                 lambda: click_main(
                     args,
@@ -1061,7 +1063,9 @@ def run(
     _run.apply_environment(state)
     ctx = Context(click.Command(prog), info_name=prog, pyclig_state=state)
     with _signals.scoped(state), _logging.scoped(state.package), ctx:
-        _logging.configure(state.package, err, debug=state.debug)
+        _logging.configure(
+            state.package, err, debug=state.debug, log_file=state.log_file
+        )
         code = _run.execute(func, state, prog=prog)
     sys.exit(code)
 

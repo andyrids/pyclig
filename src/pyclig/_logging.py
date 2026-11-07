@@ -33,6 +33,7 @@ import logging
 import warnings
 from collections.abc import Generator
 from datetime import datetime
+from pathlib import Path
 from typing import TextIO
 
 from rich.console import Console
@@ -147,7 +148,13 @@ class DebugHandler(logging.Handler):
             self.handleError(record)
 
 
-def configure(name: str, console: Console, *, debug: bool) -> None:
+def configure(
+    name: str,
+    console: Console,
+    *,
+    debug: bool,
+    log_file: Path | None = None,
+) -> None:
     """Attach a CLI handler, bound to `console`, to the `name` logger.
 
     NOTE: Replaces any handler a previous call added & keeps the rest (e.g.
@@ -155,7 +162,8 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
     (`propagate = False`), so nothing is printed twice by a root handler.
     When the root logger has no other handler, it gets one as well - at
     `WARNING`, or every record the root passes with `debug` - & its level
-    is never changed.
+    is never changed. A debug log file is opened on the first call & kept
+    by later ones (`-d`), until `scoped` exits.
 
     Args:
         name: The logger name, usually the application package.
@@ -163,17 +171,49 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
         debug: Log at `DEBUG` - through a `RichHandler` when `console` is a
             terminal, else the plain `DebugHandler`. Otherwise the
             `EventHandler` logs at `WARNING`.
+        log_file: Append every record, at `DEBUG`, to this file as well -
+            `<PROG>_LOG_FILE`. If it cannot be opened, a warning says so.
     """
     logger = logging.getLogger(name)
-    _remove_handlers(logger)
-    _attach(logger, _handler(console, debug=debug))
-    logger.setLevel(logging.DEBUG if debug else logging.WARNING)
+    file = _log_file(logger) or _open_log(console, log_file)
+    _remove_handlers(logger, keep=file)
+    _remove_handlers(logging.root, keep=file)
+    level = logging.NOTSET if debug else logging.WARNING
+    _attach(logger, _handler(console, debug=debug), level)
+    logger.setLevel(logging.DEBUG if debug or file else logging.WARNING)
     logger.propagate = False
-    _remove_handlers(logging.root)
     if not logging.root.handlers:
-        root = _handler(console, debug=debug)
-        root.setLevel(logging.NOTSET if debug else logging.WARNING)
-        _attach(logging.root, root)
+        _attach(logging.root, _handler(console, debug=debug), level)
+        if file:
+            logging.root.addHandler(file)
+    if file:
+        logger.addHandler(file)
+
+
+def log_failure(name: str, error: BaseException) -> str | None:
+    """Write `error` & its traceback to the `name` logger's debug log file.
+
+    Args:
+        name: The logger name.
+        error: The exception that ended the run.
+
+    Returns:
+        The file's path, or None when the run has no debug log file.
+    """
+    file = _log_file(logging.getLogger(name))
+    if file is None:
+        return None
+    record = logging.LogRecord(
+        name,
+        logging.ERROR,
+        __file__,
+        0,
+        "unexpected %s",
+        (type(error).__name__,),
+        (type(error), error, error.__traceback__),
+    )
+    file.handle(record)
+    return file.baseFilename
 
 
 @contextlib.contextmanager
@@ -229,10 +269,44 @@ def _handler(console: Console, *, debug: bool) -> logging.Handler:
     return handler
 
 
-def _attach(logger: logging.Logger, handler: logging.Handler) -> None:
+def _attach(
+    logger: logging.Logger, handler: logging.Handler, level: int = 0
+) -> None:
     """Mark `handler` as the run's, so it is removed later, & add it."""
     setattr(handler, _MARKER, True)
+    handler.setLevel(level)
     logger.addHandler(handler)
+
+
+def _log_file(logger: logging.Logger) -> logging.FileHandler | None:
+    """Return the debug log file handler `configure` added to `logger`."""
+    for handler in logger.handlers:
+        if isinstance(handler, _LogFile):
+            return handler
+    return None
+
+
+class _LogFile(logging.FileHandler):
+    """The run's debug log file, appended with `DEBUG_FORMAT`."""
+
+
+def _open_log(console: Console, path: Path | None) -> _LogFile | None:
+    """Open the debug log file at `path`, or warn that it cannot be."""
+    if path is None:
+        return None
+    try:
+        handler = _LogFile(path, "a", encoding="utf-8")
+    except OSError as error:
+        reason = error.strerror or str(error)
+        notice(
+            console,
+            level="warning",
+            message=f"cannot write the debug log to {path}: {reason}",
+        )
+        return None
+    handler.setFormatter(_DebugFormatter(DEBUG_FORMAT))
+    setattr(handler, _MARKER, True)
+    return handler
 
 
 def _show_warning(  # noqa: PLR0913 - the `warnings.showwarning` signature
@@ -278,8 +352,12 @@ def _format_time(when: datetime) -> Text:
     return Text(_timestamp(when))
 
 
-def _remove_handlers(logger: logging.Logger) -> None:
-    """Remove & close the handlers `configure` added to `logger`."""
+def _remove_handlers(
+    logger: logging.Logger, keep: logging.Handler | None = None
+) -> None:
+    """Remove the handlers `configure` added to `logger` & close them,
+    except `keep`, which is only removed."""
     for handler in [h for h in logger.handlers if getattr(h, _MARKER, False)]:
         logger.removeHandler(handler)
-        handler.close()
+        if handler is not keep:
+            handler.close()
