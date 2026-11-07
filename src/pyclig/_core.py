@@ -228,6 +228,41 @@ class Context(click.Context):
         with self.out.pager(pager=_output._ClickPager(), styles=True):
             yield
 
+    @contextlib.contextmanager
+    def cleanup(self, *, timeout: float | None = 10.0) -> Iterator[None]:
+        """Bound a clean-up after an interrupt: a second Ctrl-C or the
+        timeout skips it.
+
+        ```python
+        try:
+            work(process)
+        finally:
+            with ctx.cleanup():
+                process.shutdown()
+        ```
+
+        Entered after an interrupt, the block prints `cleaning up - press
+        Ctrl-C again to skip` (just `cleaning up` after SIGTERM) and the
+        timer starts. A signal arriving inside the block prints the notice
+        & hint and lets the block finish, then the run exits 130 or 143.
+        Another signal prints `warning: clean-up skipped`; the timeout
+        prints `warning: clean-up timed out after 10s`; both flush the
+        streams & exit at once with the code, even while the block is
+        stuck in a blocking call. If the block raises, the exception
+        propagates and the timer is cancelled. Nested blocks keep the
+        outermost timer. Off the main thread, or with no interrupt, the
+        block simply runs.
+
+        Args:
+            timeout: Seconds allowed, counted from the interrupt; None
+                for no bound (a second signal still skips).
+
+        Yields:
+            Nothing; the block is the clean-up.
+        """
+        with _signals.cleanup(_require_state(self), timeout=timeout):
+            yield
+
 
 def _require_state(ctx: click.Context) -> _run.State:
     """Return the run's state, or raise when there is none."""

@@ -91,8 +91,9 @@ class State:
             when a command is invoked, so help & version never fail on it.
         signal: The signal received, recorded by the run's handler.
         announced: Whether the handler has printed the signal's notice.
-        cleaning: The depth of active clean-up blocks, inside which a
-            first signal is recorded but does not raise.
+        cleaning: The depth of active `ctx.cleanup` blocks, inside which
+            a first signal is recorded but does not raise.
+        watcher: The outermost active block's watcher thread, or None.
     """
 
     out: Console
@@ -112,6 +113,7 @@ class State:
     signal: int | None = None
     announced: bool = False
     cleaning: int = 0
+    watcher: _signals.Watcher | None = None
 
     @property
     def can_prompt(self) -> bool:
