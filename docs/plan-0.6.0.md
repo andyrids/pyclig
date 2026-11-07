@@ -137,6 +137,17 @@ The notice ends the `^C` line on a terminal (SIGINT), then prints `warning: inte
 - the `asyncio.Runner` fallback;
 - mypy guarding `signal.SIGBREAK` with `sys.platform == "win32"`.
 
+**P2 spike result:** Rich re-entry is safe: `Console._lock` is an `RLock`, so the handler's
+`print` on `state.err` nests. Mid-render the notice lands first and the cut line is dropped; in
+the write phase the in-flight line repeats, which the default handler causes too (the buffer is
+left stale), so no helper thread is used. `asyncio.run` keeps a non-default SIGINT handler on
+3.11-3.14: the interrupt leaves it at once, the task's `finally` runs and the proactor loop
+resets its wakeup fd. mypy 3.11 and 3.14, win32 and linux, accept `signal.SIGBREAK` under
+`sys.platform == "win32"`. `CTRL_BREAK_EVENT` reaches a `CREATE_NEW_PROCESS_GROUP` child on
+3.11-3.14, but SIGBREAK never wakes a plain `socket.recv`, `time.sleep` or `Event.wait`, so the
+Windows test child polls `recv` with a 0.1 s timeout. On WSL, SIGINT and SIGTERM interrupt a
+plain `recv` at once.
+
 ### Item 2 - `ctx.cleanup(*, timeout: float | None = 10.0)` (SIG-2, SIG-3 `done`, interface)
 
 A context manager on `Context`, next to `pager` (`_core.py:201-229`), that delegates to
