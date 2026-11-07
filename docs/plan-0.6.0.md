@@ -308,6 +308,14 @@ defaults under Context. The matrix covers:
 - the second-signal skip and the timeout;
 - SIGTERM exiting 143 and Ctrl-Break exiting 130.
 
+P3 result (confirmed 7 November 2026): with the clean-up stuck in `Event().wait()`, a second
+signal exits in 0-12 ms and a 0.5 s timeout at 504-524 ms on Windows 3.11, 3.14 and WSL; SIGTERM
+gives 143 on WSL, Ctrl-Break 130 on Windows. The dkais fit (`process` clean-up in
+`ctx.cleanup()`) passed 134 tests. Every default stood. Accepted departures: a fourth `State`
+field, `watcher`; a foreign wakeup fd (asyncio's proactor) is left in place and the handler
+forwards signals to the watcher; Windows test children poll `recv` (0.1 s), since SIGBREAK never
+wakes a plain `recv`; an interrupt while the runner reports is caught in `_run.execute`.
+
 P7 edits:
 
 - **`README.md`:**
