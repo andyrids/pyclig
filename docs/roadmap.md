@@ -37,7 +37,7 @@ attributes). A release may ship fewer items than listed, never a breaking one.
 - `<PROG>_DEBUG` & `<PROG>_NO_COLOR` (ENV-6, OUT-13e)
 - `-o/--output`, `-p/--port` & `-u/--user` factories (ARG-6e)
 
-## 0.6 - robustness and signals
+## 0.6 - robustness and signals (delivered in 0.6.0)
 
 - `with ctx.cleanup(timeout=...)`: say so at once on Ctrl-C, bound the clean-up, let a second
   Ctrl-C skip it (SIG-1, SIG-2, SIG-3)

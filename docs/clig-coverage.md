@@ -15,7 +15,7 @@ file is shared under the same licence.
 
 CLIG is the requirement. Every actionable rule has a row here, and the IDs are the one namespace
 shared by `pyclig.testing.assert_conforms`, `docs/roadmap.md` and the CHANGELOG. Status is as of
-0.5.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
+0.6.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
 so it stays true across line moves.
 
 Status: `done` means pyclig delivers it, `done (click)` or `done (rich)` that a dependency does;
@@ -92,7 +92,7 @@ library's reach.
 | OUT-15 | Symbols & emoji where clearer | done | UTF-8 streams; `hanging(head=)` | check |
 | OUT-16 | Developer detail only when verbose | done | `-d` | auto |
 | OUT-17 | Usability feedback from outsiders | gap | Process concern | out |
-| OUT-18 | No log labels or context by default | partial | Prefixes; levels only with `-d` | auto |
+| OUT-18 | No log labels or context by default | done | Root & `warnings` too | auto |
 | OUT-19 | Pager on a TTY only, `less -FIRX` | done | `ctx.pager`; opt-in on Windows | interface |
 
 ## Errors
@@ -105,7 +105,7 @@ library's reach.
 | ERR-4 | Most important information last | done | Hints & the `--help` pointer print last | auto |
 | ERR-5 | Red sparingly | done | `notice` prefix only | auto |
 | ERR-6 | Traceback & bug instructions when unexpected | done | `_run._failed` | auto |
-| ERR-7 | Debug log to a file | gap | Roadmap 0.6 | interface |
+| ERR-7 | Debug log to a file | done | `<PROG>_LOG_FILE`; `test_log_file_*` | auto |
 | ERR-8 | Pre-filled bug report URL | partial | Plain `Issues` URL | auto |
 
 ## Arguments and flags
@@ -128,7 +128,7 @@ library's reach.
 | ARG-9 | Never require a prompt; skip off a TTY | done | Default, else fail naming the flag | auto |
 | ARG-10 | Confirm danger; `--force` for scripts | done | `confirm`, `options.force()` | interface |
 | ARG-11a | Mild or moderate danger: prompt, dry run | done | `confirm`, `dry_run()` | interface |
-| ARG-11b | Severe danger: type the name, `--confirm=name` | gap | Roadmap 0.6 | interface |
+| ARG-11b | Severe danger: type the name, `--confirm=name` | done | `confirm_name` | interface |
 | ARG-12 | Watch for implicit destruction | gap | Application concern | out |
 | ARG-13 | `-` for STDIN & STDOUT | done (click) | `click.File` | interface |
 | ARG-14 | A word like `none` for an optional value | gap | No type | interface |
@@ -143,7 +143,7 @@ library's reach.
 | INT-2 | `--no-input` fails & names the flag | done | Names `--force` or the option | auto |
 | INT-3 | Hide a password as it is typed | done (click) | `hide_input` | interface |
 | INT-4 | Make it clear how to exit | gap | No hint | out |
-| INT-5 | Ctrl-C works during network I/O | partial | Runner; apps poll by hand | interface |
+| INT-5 | Ctrl-C works during network I/O | partial | Blocking Windows calls delay it | interface |
 | INT-6 | Document the escape for wrappers | gap | Application concern | out |
 
 ## Subcommands
@@ -164,8 +164,8 @@ library's reach.
 | ROB-2 | Print within 100 ms; say so before network | partial | Import about 60 ms | check |
 | ROB-3 | Progress or an ETA for long work | done | `progress` | interface |
 | ROB-4 | Parallel without interleaving | partial | Atomic prints | interface |
-| ROB-5 | Hide logs on success, show on failure | partial | Transient feedback; 0.6 | interface |
-| ROB-6 | Configurable network timeouts | gap | Roadmap 0.6 | interface |
+| ROB-5 | Hide logs on success, show on failure | done | `ctx.logs_on_failure` | interface |
+| ROB-6 | Configurable network timeouts | done | `options.timeout()` | interface |
 | ROB-7 | Re-running resumes | gap | Application concern | out |
 | ROB-8 | Crash-only design | gap | Application concern | out |
 | ROB-9 | Expect misuse & odd environments | partial | `None` streams; per-run state | auto |
@@ -185,9 +185,9 @@ library's reach.
 
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
-| SIG-1 | Ctrl-C: say so at once, before clean-up | partial | Printed after unwinding (0.6) | auto |
-| SIG-2 | Time out clean-up | gap | Roadmap 0.6 | interface |
-| SIG-3 | Second Ctrl-C skips clean-up & says so | gap | Roadmap 0.6 | interface |
+| SIG-1 | Ctrl-C: say so at once, before clean-up | done | Per-run handlers; `test_signals` | auto |
+| SIG-2 | Time out clean-up | done | `ctx.cleanup(timeout=)`; `test_signals` | interface |
+| SIG-3 | Second Ctrl-C skips clean-up & says so | done | `ctx.cleanup` | interface |
 | SIG-4 | Expect a previous clean-up never ran | gap | Application concern | out |
 
 ## Configuration
@@ -266,3 +266,11 @@ HELP-18 to `partial`: `options.secret("-")` refuses a terminal STDIN with a usag
 options only and never `os.environ`, so no kit check was needed. Top-level config keys do not
 cascade into subcommand tables (click's `default_map` shape); a shared setting is a value
 `GlobalOption`. `--config FILE` selects `table` only when named like the project file.
+
+## Delivered in 0.6.0
+
+SIG-1, SIG-2, SIG-3, OUT-18, ERR-7, ROB-5, ROB-6 & ARG-11b moved to `done`. Each run installs its
+own signal handlers, so Ctrl-C says so at once and `SIGTERM` exits 143; `ctx.cleanup` bounds the
+clean-up. ERR-7's owner became `auto`: `<PROG>_LOG_FILE` needs no code in the application. INT-5
+stays `partial`: a blocking Windows call delays Ctrl-C until it returns, and no whole-run watcher
+was added. No kit check was added, so consumers get no new findings.
