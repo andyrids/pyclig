@@ -8,7 +8,12 @@ by a `RichHandler` on a terminal, else one plain line each (`DebugHandler`):
 [2026-10-31T09:14:03+0000] DEBUG    [convert] converting 'nope'  cli.py:47
 ```
 
-NOTE: Every handler writes through the console it is given. Pass the same
+NOTE: When the root logger has no handlers as the run starts, the root gets
+one too & `warnings` print through it: third-party notices show, without
+`file:line` unless `-d` is on. A root configured by the application (e.g.
+`logging.basicConfig`) is left alone.
+
+Every handler writes through the console it is given. Pass the same
 STDERR console to any `Progress` or `Status`, so Rich redraws the live
 display around log lines instead of printing through it. The logger's state
 is restored when the run ends, so repeated in-process runs (tests) never
@@ -25,8 +30,10 @@ License:
 
 import contextlib
 import logging
+import warnings
 from collections.abc import Generator
 from datetime import datetime
+from typing import TextIO
 
 from rich.console import Console
 from rich.text import Text
@@ -146,6 +153,9 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
     NOTE: Replaces any handler a previous call added & keeps the rest (e.g.
     the library `NullHandler`). Records stop at this logger
     (`propagate = False`), so nothing is printed twice by a root handler.
+    When the root logger has no other handler, it gets one as well - at
+    `WARNING`, or every record the root passes with `debug` - & its level
+    is never changed.
 
     Args:
         name: The logger name, usually the application package.
@@ -156,6 +166,49 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
     """
     logger = logging.getLogger(name)
     _remove_handlers(logger)
+    _attach(logger, _handler(console, debug=debug))
+    logger.setLevel(logging.DEBUG if debug else logging.WARNING)
+    logger.propagate = False
+    _remove_handlers(logging.root)
+    if not logging.root.handlers:
+        root = _handler(console, debug=debug)
+        root.setLevel(logging.NOTSET if debug else logging.WARNING)
+        _attach(logging.root, root)
+
+
+@contextlib.contextmanager
+def scoped(name: str) -> Generator[None, None, None]:
+    """Restore the `name` logger's handlers, level & propagation on exit.
+
+    NOTE: When the root logger has no handlers on entry, `warnings` print
+    through it for the run (`showwarning` is replaced, then restored) & the
+    root handler `configure` adds is removed on exit.
+
+    Args:
+        name: The logger name.
+
+    Yields:
+        None, while the run configures the logger.
+    """
+    logger = logging.getLogger(name)
+    saved = logger.handlers[:], logger.level, logger.propagate
+    shown = None if logging.root.handlers else warnings.showwarning
+    if shown is not None:
+        warnings.showwarning = _show_warning
+    try:
+        yield
+    finally:
+        _remove_handlers(logger)
+        logger.handlers[:] = saved[0]
+        logger.setLevel(saved[1])
+        logger.propagate = saved[2]
+        _remove_handlers(logging.root)
+        if shown is not None:
+            warnings.showwarning = shown
+
+
+def _handler(console: Console, *, debug: bool) -> logging.Handler:
+    """Return the run's handler for `console`, as `configure` describes."""
     handler: logging.Handler
     if debug and console.is_terminal:
         from rich.logging import RichHandler
@@ -173,31 +226,46 @@ def configure(name: str, console: Console, *, debug: bool) -> None:
         handler = DebugHandler(console)
     else:
         handler = EventHandler(console)
+    return handler
+
+
+def _attach(logger: logging.Logger, handler: logging.Handler) -> None:
+    """Mark `handler` as the run's, so it is removed later, & add it."""
     setattr(handler, _MARKER, True)
     logger.addHandler(handler)
-    logger.setLevel(logging.DEBUG if debug else logging.WARNING)
-    logger.propagate = False
 
 
-@contextlib.contextmanager
-def scoped(name: str) -> Generator[None, None, None]:
-    """Restore the `name` logger's handlers, level & propagation on exit.
+def _show_warning(  # noqa: PLR0913 - the `warnings.showwarning` signature
+    message: Warning | str,
+    category: type[Warning],
+    filename: str,
+    lineno: int,
+    file: TextIO | None = None,
+    line: str | None = None,
+) -> None:
+    """Log a warning as a `py.warnings` record carrying the message only.
 
-    Args:
-        name: The logger name.
-
-    Yields:
-        None, while the run configures the logger.
+    NOTE: The record keeps the warning's file & line as its call site, which
+    only the `-d` handlers print. An explicit `file` is printed as before.
     """
-    logger = logging.getLogger(name)
-    saved = logger.handlers[:], logger.level, logger.propagate
-    try:
-        yield
-    finally:
-        _remove_handlers(logger)
-        logger.handlers[:] = saved[0]
-        logger.setLevel(saved[1])
-        logger.propagate = saved[2]
+    if file is not None:
+        file.write(
+            warnings.formatwarning(message, category, filename, lineno, line)
+        )
+        return
+    logger = logging.getLogger("py.warnings")
+    if logger.isEnabledFor(logging.WARNING):
+        record = logger.makeRecord(
+            logger.name,
+            logging.WARNING,
+            filename,
+            lineno,
+            str(message),
+            (),
+            None,
+            func=category.__name__,
+        )
+        logger.handle(record)
 
 
 def _timestamp(when: datetime) -> str:

@@ -1,10 +1,15 @@
 """Tests for `pyclig._logging` - handlers scoped to a run."""
 
+import contextlib
+import io
 import logging
 import re
+import warnings
+from collections.abc import Callable, Iterator
 
 import pytest
 
+import pyclig
 from pyclig import Group
 from pyclig.testing import invoke
 from tests.conftest import RunSample
@@ -154,3 +159,141 @@ def test_debug_flag_after_variable_is_a_no_op(sample: Group) -> None:
     result = invoke(sample, ["-d", "log"], env={"TESTS_DEBUG": "1"})
     assert result.stderr.count("debug record") == 1
     assert result.stderr.count("warning record") == 1
+
+
+def _third_party() -> pyclig.Command:
+    """Return a CLI whose command warns & logs as a third-party library."""
+
+    @pyclig.command("probe")
+    def probe() -> None:
+        """Warn & log outside the package logger."""
+        warnings.warn("old api", DeprecationWarning, stacklevel=1)
+        library = logging.getLogger("thirdparty")
+        library.setLevel(logging.INFO)
+        library.info("library detail")
+        library.warning("library notice")
+
+    return probe
+
+
+BareRoot = Callable[[], contextlib.AbstractContextManager[None]]
+
+
+@pytest.fixture
+def bare_root() -> Iterator[BareRoot]:
+    """Return a context that empties the root logger's handlers, as no CLI
+    configured them.
+
+    NOTE: pytest adds its capture handlers to the root logger when the test
+    is called, after fixtures are set up, so the root is emptied in the body.
+    """
+
+    @contextlib.contextmanager
+    def emptied() -> Iterator[None]:
+        saved = logging.root.handlers[:]
+        logging.root.handlers[:] = []
+        try:
+            yield
+        finally:
+            logging.root.handlers[:] = saved
+
+    yield emptied
+    logging.getLogger("thirdparty").setLevel(logging.NOTSET)
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_warning_prints_message_only(bare_root: BareRoot) -> None:
+    """Assert `warnings.warn` prints `warning: msg`, with no path."""
+    with bare_root():
+        result = invoke(_third_party(), [])
+    assert "warning: old api" in result.stderr.splitlines()
+    assert "test_logging.py" not in result.stderr
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_warning_location_under_debug(bare_root: BareRoot) -> None:
+    """Assert `-d` shows where a warning was raised."""
+    with bare_root():
+        result = invoke(_third_party(), ["-d"])
+    (line,) = [x for x in result.stderr.splitlines() if "old api" in x]
+    assert PLAIN_RECORD.fullmatch(line)
+    assert "test_logging.py:" in line
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_logger_records(bare_root: BareRoot) -> None:
+    """Assert a library WARNING is a notice & its INFO needs `-d`."""
+    with bare_root():
+        result = invoke(_third_party(), [])
+        debug = invoke(_third_party(), ["-d"])
+    assert "warning: library notice" in result.stderr.splitlines()
+    assert "library detail" not in result.stderr
+    assert debug.stderr.count("library detail") == 1
+    assert debug.stderr.count("library notice") == 1
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_notices_kept_under_quiet(bare_root: BareRoot) -> None:
+    """Assert `-q` keeps library notices, as it keeps package ones."""
+    with bare_root():
+        result = invoke(_third_party(), ["-q"])
+    lines = result.stderr.splitlines()
+    assert "warning: library notice" in lines
+    assert "warning: old api" in lines
+    assert "library detail" not in result.stderr
+
+
+@pytest.mark.filterwarnings("default")
+def test_root_and_showwarning_restored_after_runs(bare_root: BareRoot) -> None:
+    """Assert repeated runs leave the root logger & `showwarning` as found."""
+    with bare_root():
+        before = logging.root.handlers[:], logging.root.level
+        shown = warnings.showwarning
+        for args in ([], ["-d"]):
+            invoke(_third_party(), args)
+            assert (logging.root.handlers[:], logging.root.level) == before
+            assert warnings.showwarning is shown
+
+
+def test_configured_root_left_alone(bare_root: BareRoot) -> None:
+    """Assert a root logger with a handler keeps it & `showwarning` is kept."""
+    records: list[logging.LogRecord] = []
+
+    class Keep(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    seen: list[Callable[..., object]] = []
+
+    @pyclig.command("probe")
+    def probe() -> None:
+        """Record the run's `showwarning` & log as a library."""
+        seen.append(warnings.showwarning)
+        logging.getLogger("thirdparty").warning("library notice")
+
+    handler = Keep()
+    with bare_root():
+        logging.root.addHandler(handler)
+        original = warnings.showwarning
+        result = invoke(probe, [])
+        assert logging.root.handlers == [handler]
+    assert seen == [original]
+    assert [r.getMessage() for r in records] == ["library notice"]
+    assert "library notice" not in result.stderr
+
+
+def test_warning_to_an_explicit_file_printed_there(
+    bare_root: BareRoot,
+) -> None:
+    """Assert `showwarning` with a `file` still writes the warning there."""
+    stream = io.StringIO()
+
+    @pyclig.command("probe")
+    def probe() -> None:
+        """Show a warning to an explicit stream."""
+        warnings.showwarning("old api", UserWarning, "lib.py", 3, stream)
+
+    with bare_root():
+        result = invoke(probe, [])
+    assert stream.getvalue() == "lib.py:3: UserWarning: old api\n"
+    assert "old api" not in result.stderr
