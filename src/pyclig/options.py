@@ -9,6 +9,7 @@ the flag in the application's own terms.
 | `plain()`       | `--plain`         | -             | `plain`      |
 | `select_all()`  | `-a`, `--all`     | `select_all`  |              |
 | `force()`       | `-f`, `--force`   | `force`       |              |
+| `confirm()`     | `--confirm NAME`  | `confirmed`   |              |
 | `dry_run()`     | `-n`, `--dry-run` | `dry_run`     |              |
 | `secret(name)`  | `--<name>-file`   | `<name>`      |              |
 | `output()`      | `-o`, `--output`  | `output`      |              |
@@ -216,6 +217,30 @@ def secret(
         callback=_read_secret,
         metavar="FILE",
         help=help or f"Read the {name} from FILE, or from STDIN with `-`.",
+    )
+
+
+def confirm(
+    *,
+    help: str = "Type the name to confirm a severe action.",  # noqa: A002 - click's own keyword
+) -> Callable[[FC], FC]:
+    """Add `--confirm NAME`, passed to the command as `confirmed` or None.
+
+    Pair it with `pyclig.confirm_name`, which prompts when it is absent.
+
+    Args:
+        help: The flag's help text.
+
+    Returns:
+        The option decorator.
+    """
+    return click.option(
+        "--confirm",
+        "confirmed",
+        type=str,
+        default=None,
+        metavar="NAME",
+        help=help,
     )
 
 

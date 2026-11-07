@@ -316,6 +316,68 @@ def confirm(ctx: click.Context, *, message: str, force: bool) -> None:
     click.confirm(message, default=False, abort=True, err=True)
 
 
+def confirm_name(
+    ctx: click.Context, *, message: str, name: str, confirmed: str | None
+) -> None:
+    """Ask the user to type a resource's name before a severe action.
+
+    | Case                          | Outcome                                |
+    | ----------------------------- | -------------------------------------- |
+    | `confirmed` is `name`         | Returns, without a prompt              |
+    | `confirmed` is anything else  | `error:` naming `name`, usage - 2      |
+    | STDIN or STDERR not a terminal| `error:` naming `--confirm`, usage - 2 |
+    | `--no-input`                  | `error:` naming both flags, usage - 2  |
+    | The typed `name`              | Returns                                |
+    | Another name, empty, EOF      | `error: aborted` - exit 1              |
+    | Ctrl-C                        | `warning: interrupted` - exit 130      |
+
+    NOTE: `--force` does not bypass it - a severe action needs the name.
+    Call it before starting any live display (`Progress`, `Status`).
+
+    ```python
+    @cli.command()
+    @pyclig.options.confirm()
+    @pyclig.pass_context
+    def drop(ctx: pyclig.Context, confirmed: str | None) -> None:
+        \"\"\"Drop the production database.\"\"\"
+        pyclig.confirm_name(
+            ctx, message="Drop prod?", name="prod", confirmed=confirmed
+        )
+    ```
+
+    Args:
+        ctx: The command's context.
+        message: The question, e.g. `Drop the production database?`.
+        name: The name to type, e.g. the resource's name.
+        confirmed: The `--confirm` value, or None.
+
+    Raises:
+        click.UsageError: When `confirmed` is wrong or the run cannot prompt.
+        click.Abort: When the prompt is declined or interrupted.
+    """
+    if confirmed is not None:
+        if confirmed != name:
+            raise click.UsageError(
+                f"`--confirm` is not the expected name, `{name}`", ctx=ctx
+            )
+        return
+    state = _require_state(ctx)
+    if not state.can_prompt:
+        raise click.UsageError(
+            f"confirmation needed, but {_cannot_prompt(state)} - "
+            f"pass `--confirm={name}` to proceed",
+            ctx=ctx,
+        )
+    answer = click.prompt(
+        f"{message} Type '{name}' to confirm",
+        default="",
+        show_default=False,
+        err=True,
+    )
+    if answer != name:
+        raise click.Abort
+
+
 def _cannot_prompt(state: _run.State) -> str:
     """Return why the run cannot prompt, for a usage error."""
     if state.no_input:
