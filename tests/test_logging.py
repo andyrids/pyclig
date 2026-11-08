@@ -355,7 +355,11 @@ def test_log_file_gets_crash_traceback(sample: Group, tmp_path: Path) -> None:
     assert f"debug log: {path}" in result.stderr.splitlines()
     text = path.read_text(encoding="utf-8")
     assert "Traceback (most recent call last)" in text
-    assert "unexpected" in text
+    (line,) = [x for x in text.splitlines() if "unexpected" in x]
+    assert PLAIN_RECORD.fullmatch(line)
+    assert (
+        " ERROR    [fail] unexpected RuntimeError  sample_cli.py:152" in line
+    )
 
 
 def test_log_file_unwritable_warns(sample: Group, tmp_path: Path) -> None:

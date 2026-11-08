@@ -205,14 +205,23 @@ def log_failure(name: str, error: BaseException) -> str | None:
     file = _log_file(logging.getLogger(name))
     if file is None:
         return None
+    # The call site is the frame that raised, else this module, as before
+    path, line, func = __file__, 0, None
+    tb = error.__traceback__
+    while tb is not None and tb.tb_next is not None:
+        tb = tb.tb_next
+    if tb is not None:
+        code = tb.tb_frame.f_code
+        path, line, func = code.co_filename, tb.tb_lineno, code.co_name
     record = logging.LogRecord(
         name,
         logging.ERROR,
-        __file__,
-        0,
+        path,
+        line,
         "unexpected %s",
         (type(error).__name__,),
         (type(error), error, error.__traceback__),
+        func=func,
     )
     file.handle(record)
     return file.baseFilename
