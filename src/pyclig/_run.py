@@ -141,6 +141,24 @@ def prefix_of(package: str) -> str:
     return re.sub(r"\W", "_", package).upper()
 
 
+RUN_VARIABLES = ("DEBUG", "NO_COLOR", "CONFIG", "PROFILE", "LOG_FILE")
+"""The `<PROG>_` variables a run reads."""
+
+
+def cleared(callback: object, prog: str) -> dict[str, None]:
+    """Return the `<PROG>_` variables of a run, unset, for a test runner.
+
+    Args:
+        callback: The command's callback, which names the package.
+        prog: The program name, the package when the module is unknown.
+
+    Returns:
+        Each `RUN_VARIABLES` name, prefixed, mapped to None.
+    """
+    prefix = prefix_of(package_of(callback, default=prog))
+    return dict.fromkeys(f"{prefix}_{var}" for var in RUN_VARIABLES)
+
+
 _FALSE = frozenset({"", "0", "false", "no", "off"})
 """`<PROG>_DEBUG` & `<PROG>_NO_COLOR` values that mean off, lower-cased."""
 

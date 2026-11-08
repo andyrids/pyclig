@@ -45,7 +45,7 @@ _CLEARED = (
 )
 """Environment variables that change Rich's output, unset by default."""
 
-_PREFIXED = ("DEBUG", "NO_COLOR", "CONFIG", "PROFILE", "LOG_FILE")
+_PREFIXED = _run.RUN_VARIABLES
 """The `<PROG>_` variables a run reads, unset by default."""
 
 
@@ -114,10 +114,8 @@ def invoke(
         return out, err
 
     # The same package as `Command.main` resolves, given click's prog name
-    package = _run.package_of(cli.callback, default=cli.name or "root")
-    prefix = _run.prefix_of(package)
     environ: dict[str, str | None] = dict.fromkeys(_CLEARED)
-    environ.update(dict.fromkeys(f"{prefix}_{var}" for var in _PREFIXED))
+    environ.update(_run.cleared(cli.callback, cli.name or "root"))
     environ.update(env or {})
     return CliRunner().invoke(
         cli,

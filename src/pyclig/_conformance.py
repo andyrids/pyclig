@@ -29,7 +29,7 @@ from dataclasses import dataclass
 import click
 from click.testing import CliRunner
 
-from pyclig import _config
+from pyclig import _config, _run
 from pyclig._core import Command
 from pyclig._exit import ExitCode
 
@@ -195,7 +195,9 @@ def _probe(
     """
     findings: list[Finding] = []
     runner = CliRunner()
-    env = dict.fromkeys(_CLEARED)
+    # The developer's `<PROG>_LOG_FILE` or `_DEBUG` would change the output
+    env: dict[str, str | None] = dict.fromkeys(_CLEARED)
+    env.update(_run.cleared(command.callback, path))
     taken = {o for p in command.params for o in (*p.opts, *p.secondary_opts)}
     for flag in (name for name in help_names if name not in taken):
         result = runner.invoke(
