@@ -651,3 +651,44 @@ def test_wakeup_fd_and_handlers_restored_after_a_run() -> None:
     assert invoke(_cli(body), []).exit_code == 0
     assert signal.set_wakeup_fd(-1) == -1
     assert _handlers() == before
+
+
+def test_cleanup_detaches_the_watcher_before_stopping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert `state.watcher` is None by the time the pair is closed."""
+    seen: list[Any] = []
+    original = _signals.Watcher.stop
+
+    def stop(self: _signals.Watcher) -> None:
+        seen.append(self.state.watcher)
+        original(self)
+
+    monkeypatch.setattr(_signals.Watcher, "stop", stop)
+
+    def body(ctx: pyclig.Context) -> None:
+        with ctx.cleanup():
+            pass
+
+    assert invoke(_cli(body), []).exit_code == 0
+    assert seen == [None]
+
+
+def test_signal_to_a_stopped_watcher_takes_the_plain_path() -> None:
+    """Assert `notify` on closed ends raises nothing & the handler steps in."""
+
+    def body(ctx: pyclig.Context) -> None:
+        state = _state(ctx)
+        with ctx.cleanup():
+            watcher = state.watcher
+        assert watcher is not None
+        assert watcher.notify(signal.SIGINT) is False
+        watcher.owns_fd = False
+        state.watcher = watcher
+        signal.raise_signal(signal.SIGINT)
+        click.echo("not reached")
+
+    result = invoke(_cli(body), [])
+    assert result.exit_code == 130
+    assert result.stderr == "warning: interrupted\n"
+    assert result.stdout == ""

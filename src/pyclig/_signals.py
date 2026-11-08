@@ -128,8 +128,9 @@ def cleanup(
         watcher.start()
         yield
     finally:
-        watcher.stop()
+        # Detach first: a signal landing now takes the handler's plain path
         state.watcher, state.cleaning = None, 0
+        watcher.stop()
     if not interrupted and state.signal is not None:
         raise KeyboardInterrupt
 
@@ -200,9 +201,17 @@ class Watcher:
             signal.set_wakeup_fd(-1)
         self._wake.close()
 
-    def notify(self, signum: int) -> None:
-        """Forward a signal the Python handler saw (no wakeup fd owned)."""
-        self._wake.write(bytes([signum]))
+    def notify(self, signum: int) -> bool:
+        """Forward a signal the Python handler saw (no wakeup fd owned).
+
+        Returns:
+            Whether it was forwarded; False once the ends are closed.
+        """
+        try:
+            self._wake.write(bytes([signum]))
+        except OSError:
+            return False
+        return True
 
     def _arm(self) -> None:
         """Start the timer, counting from now."""
@@ -338,9 +347,7 @@ def _handler(state: "State") -> Handler:
 
     def handle(signum: int, frame: FrameType | None) -> None:
         watcher = state.watcher
-        if watcher is not None:
-            if not watcher.owns_fd:
-                watcher.notify(signum)
+        if watcher is not None and (watcher.owns_fd or watcher.notify(signum)):
             return
         if state.signal is None:
             state.signal = signum
