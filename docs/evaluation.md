@@ -709,3 +709,41 @@ design.
 - Not verified this round: macOS, and the subprocess matrix on 3.13 (3.11 & 3.14 were run).
 - pkgdx's own "interrupted" line (`standards/_cli.py:245-250`) will now follow pyclig's notice; a
   pkgdx adoption PR, not a pyclig defect.
+
+### Fixed after evaluation (0.6.0)
+
+Three fix commits, `0cbae09`, `aec1596` & `81751d2`, re-checked by the same probes on a rebuilt
+wheel (`SETUPTOOLS_SCM_PRETEND_VERSION=0.6.0`) reinstalled into every venv above.
+
+1. The kit now clears the run's own variables: `_run.cleared(callback, path)` (`_run.py:144-159`)
+   prefixes `RUN_VARIABLES` (`DEBUG`, `NO_COLOR`, `CONFIG`, `PROFILE`, `LOG_FILE`) with the same
+   `package_of` + `prefix_of` that `Command.main` and `pyclig.run` use, and both `_probe`
+   (`_conformance.py:198-200`) and `testing.invoke` (`testing.py:117-119`) take it. On the
+   generated project `test_main.py` passes 3 of 3 with `EVALTOOL_LOG_FILE` unwritable, with it
+   writable and no file created, with `EVALTOOL_DEBUG=1`, and with all three plus
+   `EVALTOOL_NO_COLOR=1`: `test_run_variables_cleared`.
+2. `log_failure` walks to the innermost traceback frame (`_logging.py:208-215`): the file now
+   reads `ERROR    [crash] unexpected ValueError  logcli.py:88`, and a failure inside
+   `logs_on_failure` `ERROR    [held] unexpected RuntimeError  logcli.py:38`:
+   `test_log_file_gets_crash_traceback`.
+3. `cleanup` sets `state.watcher = None` before `watcher.stop()` (`_signals.py:131-133`), and
+   `notify` returns False on a closed end so the handler takes the plain path (`:204-214`,
+   `:348-350`): `test_cleanup_detaches_the_watcher_before_stopping` &
+   `test_signal_to_a_stopped_watcher_takes_the_plain_path`. Reviewed, not reproduced, as before.
+
+Each fix's new or changed tests fail with `src/` at the fix's parent: `test_run_variables_cleared`
+with `[Finding(rule... printing to STDERR')] == []`, `test_log_file_gets_crash_traceback` with
+`[None] ... _logging.py:0`, and both signal tests.
+
+Gate at `81751d2`: 448 passed, 3 skipped on 3.11 & 3.14; mypy clean on both; prek clean; 97%
+coverage. Signals on the rebuilt wheel, Windows 3.11 & 3.14 and WSL: notice at +47-52 ms
+(Windows) and +1 ms (WSL); the second signal exits 11-13 ms (Windows) and 3-8 ms (WSL) after it
+with `clean-up skipped`; the 0.5 s timeout at 562-568 ms and 503-505 ms; SIGTERM on WSL 143 on
+the plain, skip and timeout paths; `os.kill(SIGTERM)` on Windows 15. Consumers on the rebuilt
+wheel, unmodified: dkais 134 passed, pkgdx 242 passed, the generated `cli=True` project 5 passed &
+`evaltool help` exit 0.
+
+New in the fixes: none. One residual, noted and not a defect: a signal landing between the
+detach and `watcher.stop()` with `state.signal` already set raises `KeyboardInterrupt` out of
+the `finally`, so `stop` is skipped; the run exits 130 at once, and only an in-process runner
+would keep the daemon thread and its wakeup fd until the process ends. A window of microseconds.
