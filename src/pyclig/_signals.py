@@ -337,8 +337,10 @@ def _signals() -> list[int]:
     import signal
 
     handled: list[int] = [signal.SIGINT, signal.SIGTERM]
-    if sys.platform == "win32":
-        handled.append(signal.SIGBREAK)
+    # NOTE: Probe the module, not `sys.platform`, which tests patch.
+    sigbreak = getattr(signal, "SIGBREAK", None)
+    if sigbreak is not None:
+        handled.append(sigbreak)
     return handled
 
 

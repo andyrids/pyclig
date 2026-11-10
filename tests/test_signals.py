@@ -189,6 +189,17 @@ def test_handlers_installed_for_the_run_and_restored() -> None:
             assert handlers[sig] is not before[sig]
 
 
+def test_handlers_follow_the_signal_module_not_the_platform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert a patched `sys.platform` without SIGBREAK still runs."""
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.delattr(signal, "SIGBREAK", raising=False)
+    result = invoke(_cli(lambda ctx: click.echo("plain")), [])
+    assert result.exit_code == 0
+    assert result.stdout == "plain\n"
+
+
 def test_run_on_another_thread_leaves_handlers_alone() -> None:
     """Assert a run off the main thread installs nothing & still works."""
     seen: list[dict[int, Any]] = []
