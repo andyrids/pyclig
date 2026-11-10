@@ -20,6 +20,8 @@ real input are out of its reach.
 | ENV-4   | An env var that already has a meaning, e.g. `HOME`          |
 | ENV-15  | An option reading an env var whose name ends in a secret    |
 | SUB-3   | A plain click command, or one flag declared two ways        |
+| SUB-4   | Sibling names mixing `-` & `_`, or not lower-case           |
+| SUB-5   | Sibling names easily confused, e.g. `update` & `upgrade`    |
 | HELP-1  | A help flag not answered on STDOUT with exit 0              |
 | BAS-2   | An unknown flag not answered with exit 2                    |
 | BAS-5   | An unknown flag answered on STDOUT                          |
@@ -71,6 +73,9 @@ _SETTING = (
 )
 """Argument types that hold a setting; the ranges subclass the numbers."""
 _PORTABLE = re.compile(r"[A-Z_][A-Z0-9_]*")
+_CONFUSABLE = ({"update", "upgrade"}, {"remove", "delete"})
+_NEAR_LENGTH = 4
+"""The shortest names one edit apart that are reported: `ls` & `ps` are not."""
 
 _SECRET = _config._SECRET
 """A name ending in a secret word - shared with `.env`, which skips them."""
@@ -123,6 +128,8 @@ def check(
     if not getattr(cli, "examples", ()):
         findings.append(Finding("HELP-9", cli.name or "", _NO_EXAMPLES))
     for path, command in _walk(cli, cli.name or ""):
+        if isinstance(command, click.Group):
+            findings += _check_names(path, command)
         if not isinstance(command, Command):
             findings.append(Finding("SUB-3", path, _PLAIN_CLICK))
             continue
@@ -163,6 +170,43 @@ def _walk(
     if isinstance(command, click.Group):
         for name, sub in command.commands.items():
             yield from _walk(sub, f"{path} {name}")
+
+
+def _one_edit(a: str, b: str) -> bool:
+    """Return whether one insertion, deletion or substitution makes `a` `b`."""
+    if len(a) > len(b):
+        a, b = b, a
+    if a == b or len(b) - len(a) > 1:
+        return False
+    at = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), len(a))
+    return a[at + (len(a) == len(b)) :] == b[at + 1 :]
+
+
+def _check_names(path: str, group: click.Group) -> list[Finding]:
+    """Return the findings for the names of the group's subcommands.
+
+    NOTE: Two names for one command object are aliases, never confusable.
+    """
+    findings: list[Finding] = []
+    names = list(group.commands)
+    hyphen = next((n for n in names if "-" in n), "")
+    underscore = next((n for n in names if "_" in n), "")
+    if hyphen and underscore:
+        message = f"subcommands mix `-` & `_`: `{hyphen}`, `{underscore}`"
+        findings.append(Finding("SUB-4", path, message))
+    for name in names:
+        if name != name.lower():
+            message = f"`{name}` is not lower-case"
+            findings.append(Finding("SUB-4", path, message))
+    for at, a in enumerate(names):
+        for b in names[at + 1 :]:
+            if group.commands[a] is group.commands[b]:
+                continue
+            near = min(len(a), len(b)) >= _NEAR_LENGTH and _one_edit(a, b)
+            if near or {a, b} in _CONFUSABLE:
+                message = f"`{a}` & `{b}` are easily confused"
+                findings.append(Finding("SUB-5", path, message))
+    return findings
 
 
 def _envvars(param: click.Parameter) -> list[str]:

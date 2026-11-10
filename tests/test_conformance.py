@@ -191,6 +191,34 @@ def env(**kwargs: object) -> None:
     calls.append("env")
 
 
+@pyclig.group("named", examples=["named status"])
+def named() -> None:
+    """Group commands whose names break the naming rules."""
+    calls.append("named")
+
+
+def _named(ctx: click.Context) -> None:
+    """Record that a `named` command ran."""
+    calls.append(ctx.info_name or "")
+
+
+for _name in (
+    "add_item",
+    "list-items",
+    "Push",
+    "update",
+    "upgrade",
+    "remove",
+    "delete",
+    "status",
+    "stats",
+    "ls",
+    "ps",
+):
+    named.command(_name, help=f"Run {_name}.")(click.pass_context(_named))
+named.add_command(named.commands["remove"], "rm")
+
+
 @pytest.fixture(autouse=True)
 def _no_callbacks() -> None:
     """Reset the callback record before every test."""
@@ -285,6 +313,23 @@ def test_same_flag_with_another_short_is_found() -> None:
         ("ARG-6", "`-u` is conventionally `--user`, here `--all`"),
         ("SUB-3", "`--all` has `-u` here, `-a` on `twice a`"),
     ]
+
+
+def test_naming_rules_by_rule_and_command() -> None:
+    """Assert mixed, upper-case & confusable subcommand names are found."""
+    found = [(f.rule, f.command, f.message) for f in check(named)]
+    assert found == [
+        (
+            "SUB-4",
+            "named",
+            "subcommands mix `-` & `_`: `list-items`, `add_item`",
+        ),
+        ("SUB-4", "named", "`Push` is not lower-case"),
+        ("SUB-5", "named", "`update` & `upgrade` are easily confused"),
+        ("SUB-5", "named", "`remove` & `delete` are easily confused"),
+        ("SUB-5", "named", "`status` & `stats` are easily confused"),
+    ]
+    assert calls == []
 
 
 def test_own_help_spelling_is_not_probed() -> None:
