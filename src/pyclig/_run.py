@@ -270,13 +270,12 @@ def _console(*, stderr: bool) -> Console:
     piped = not is_tty(sys.stderr if stderr else sys.stdout)
     legacy_windows = False if sys.platform == "win32" and piped else None
     settings: dict[str, Any] = {}
-    forced = os.environ.get("FORCE_COLOR")
-    if piped and forced and os.environ.get("TTY_COMPATIBLE") not in {"0", "1"}:
-        probe = Console(force_terminal=True, legacy_windows=legacy_windows)
-        settings = {
-            "force_terminal": False,
-            "color_system": probe.color_system,
-        }
+    if piped and os.environ.get("TTY_COMPATIBLE") not in {"0", "1"}:
+        # Rich asks `isatty`, which says yes for the Windows null device
+        settings = {"force_terminal": False}
+        if os.environ.get("FORCE_COLOR"):
+            probe = Console(force_terminal=True, legacy_windows=legacy_windows)
+            settings["color_system"] = probe.color_system
     return Console(
         stderr=stderr,
         markup=False,
@@ -291,7 +290,9 @@ def is_tty(stream: TextIO | None) -> bool:
     """Check whether a standard stream is a terminal.
 
     NOTE: A standard stream is None under `pythonw`, & a replacement stream
-    may lack `isatty`.
+    may lack `isatty`. On Windows `isatty` is True for any character
+    device, so for `> NUL` & Git Bash's `< /dev/null` too: the console
+    itself is asked.
 
     Args:
         stream: The stream, e.g. `sys.stdin`.
@@ -299,7 +300,36 @@ def is_tty(stream: TextIO | None) -> bool:
     Returns:
         Whether the stream is a terminal.
     """
-    return stream is not None and hasattr(stream, "isatty") and stream.isatty()
+    if stream is None or not hasattr(stream, "isatty") or not stream.isatty():
+        return False
+    return _is_console(stream)
+
+
+if sys.platform == "win32":
+
+    def _is_console(stream: TextIO) -> bool:
+        """Check whether a Windows stream that `isatty` is a console.
+
+        NOTE: `ctypes` is imported here, so only for a stream that claims
+        to be a terminal. A stream without a descriptor is a replacement,
+        which is believed.
+        """
+        import ctypes  # noqa: PLC0415
+        import msvcrt  # noqa: PLC0415
+
+        try:
+            handle = ctypes.c_void_p(msvcrt.get_osfhandle(stream.fileno()))
+        except (OSError, ValueError):
+            return True
+        mode = ctypes.c_ulong()
+        kernel32 = ctypes.windll.kernel32
+        return bool(kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+else:
+
+    def _is_console(stream: TextIO) -> bool:
+        """Return True: off Windows, `isatty` is the whole answer."""
+        return True
 
 
 def package_of(func: object, default: str) -> str:

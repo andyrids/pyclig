@@ -1,6 +1,8 @@
 """Tests for `pyclig._run` - exit codes & error rendering."""
 
+import io
 import logging
+import os
 import subprocess
 import sys
 from typing import Any
@@ -323,6 +325,61 @@ def test_forced_colour_streams_stay_pipes(run_sample: RunSample) -> None:
     """Assert `FORCE_COLOR` leaves a piped console non-terminal & static."""
     result = run_sample("streams", env={"FORCE_COLOR": "1"})
     assert result.stderr == "out=False err=False live=False prompt=False\n"
+
+
+def test_null_device_is_not_a_terminal() -> None:
+    """Assert `> NUL` & `< NUL` are no terminal: `isatty` says yes on win32."""
+    result = subprocess.run(
+        [sys.executable, str(SAMPLE), "streams"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=sample_env(),
+        check=False,
+    )
+    assert result.stderr == "out=False err=False live=False prompt=False\n"
+    with open(os.devnull, "w", encoding="utf-8") as null:
+        assert not _run.is_tty(null)
+
+
+def test_null_device_is_a_terminal_when_asked() -> None:
+    """Assert `TTY_COMPATIBLE=1` still makes the null device a terminal."""
+    result = subprocess.run(
+        [sys.executable, str(SAMPLE), "streams"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=sample_env({"TTY_COMPATIBLE": "1"}),
+        check=False,
+    )
+    assert result.stderr.startswith("out=True err=True")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows console")
+@pytest.mark.parametrize(
+    ("device", "mode"), [("CONOUT$", "w"), ("CONIN$", "r")]
+)
+def test_windows_console_is_a_terminal(device: str, mode: str) -> None:
+    """Assert the console's own devices pass the `GetConsoleMode` check."""
+    try:
+        console = open(device, mode, encoding="utf-8")  # noqa: SIM115
+    except OSError:
+        pytest.skip("no console is attached to this process")
+    with console:
+        assert _run.is_tty(console)
+
+
+def test_stream_without_a_descriptor_is_trusted() -> None:
+    """Assert a replacement stream saying it is a terminal is believed."""
+
+    class Fake(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    assert _run.is_tty(Fake())
+    assert not _run.is_tty(io.StringIO())
+    assert not _run.is_tty(None)
 
 
 def test_no_color_removes_colour(run_sample: RunSample) -> None:
