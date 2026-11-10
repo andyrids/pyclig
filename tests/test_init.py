@@ -7,8 +7,9 @@ import sys
 import pyclig
 
 _PROBE = """
-import json, logging, sys
+import json, logging, signal, sys, warnings
 import rich
+shown = warnings.showwarning
 before = set(sys.modules)
 import pyclig
 new = set(sys.modules) - before
@@ -16,17 +17,24 @@ heavy = (
     "rich.traceback", "rich.logging", "pygments", "importlib.metadata",
     "rich.progress", "rich.table", "rich.box",
     "pyclig._conformance", "pyclig.testing", "click.testing", "tomllib",
+    "socket",
 )
 print(json.dumps({
     "heavy": sorted(m for m in new if m.startswith(heavy)),
     "root_handlers": len(logging.getLogger().handlers),
     "rich_console": rich._console is not None,
+    "sigint_default": (
+        signal.getsignal(signal.SIGINT) is signal.default_int_handler
+    ),
+    "sigterm_default": signal.getsignal(signal.SIGTERM) is signal.SIG_DFL,
+    "showwarning_kept": warnings.showwarning is shown,
 }))
 """
 
 
 def test_import_has_no_side_effects() -> None:
-    """Assert `import pyclig` leaves global state & heavy modules alone."""
+    """Assert `import pyclig` leaves global state, signal handlers,
+    `showwarning` & heavy modules alone."""
     result = subprocess.run(
         [sys.executable, "-c", _PROBE],
         capture_output=True,
@@ -37,6 +45,9 @@ def test_import_has_no_side_effects() -> None:
         "heavy": [],
         "root_handlers": 0,
         "rich_console": False,
+        "sigint_default": True,
+        "sigterm_default": True,
+        "showwarning_kept": True,
     }
 
 

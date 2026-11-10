@@ -16,7 +16,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > - `Fixed` for any bug fixes.
 > - `Security` in case of vulnerabilities.
 
-## [0.5.0]
+## [0.6.0] - 2026-11-10
+
+### Added
+
+- Per-run signal handlers: Ctrl-C (and Ctrl-Break on Windows) prints `warning: interrupted` at
+  once & exits 130; `SIGTERM` prints `warning: terminated` & exits 143 (`ExitCode.TERMINATE`)
+- `ctx.cleanup(timeout=10.0)`: bounds clean-up after an interrupt - a second Ctrl-C or the
+  timeout flushes the streams & exits at once
+- Third-party `WARNING` records & `warnings.warn` print as `warning:` notices when the root logger
+  has no handlers; `file:line` shows under `-d`
+- `<PROG>_LOG_FILE`: appends a `DEBUG` log of every run to a file; a crash adds its traceback &
+  the hint `debug log: FILE`
+- `ctx.logs_on_failure(level=logging.INFO)`: holds a block's info lines & prints them only when an
+  exception leaves it
+- `pyclig.confirm_name` & `options.confirm()`: `--confirm NAME` or a typed name for severe
+  actions, never skipped by `--force`
+- `options.timeout()`: `--timeout SECONDS`, a positive float, 30 by default
+- `testing.invoke` clears `<PROG>_LOG_FILE`
+
+## [0.5.0] - 2026-11-06
 
 ### Added
 

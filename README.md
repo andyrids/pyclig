@@ -13,8 +13,8 @@ primitives, run flags & standard flags. Options, arguments & types are plain cli
 CLIG is treated as a contract: a CLI conforms with no application code wherever `pyclig` can do
 it alone, gets one obvious interface for each rule that needs application input, and
 `pyclig.testing.assert_conforms` reports the rest by rule ID. `docs/clig-coverage.md` has the
-rule-by-rule status and `docs/roadmap.md` what each release adds. Pin `pyclig~=0.3.0` while it
-is pre-1.0: a minor release may break, and `~=0.3` would admit 0.4.
+rule-by-rule status and `docs/roadmap.md` what each release adds. Pin `pyclig~=0.6.0` while it
+is pre-1.0: a minor release may break, and `~=0.6` would admit 0.7.
 
 ## Usage
 
@@ -250,7 +250,8 @@ messages on STDERR:
 | `return code` | - | code |
 | `click.UsageError`, `ctx.fail()` | `error:`, the failing command's usage, a `--help` hint | 2 |
 | Other `click.ClickException` | `error: message` | its code |
-| Ctrl-C, in a command or at a prompt | `warning: interrupted` | 130 |
+| Ctrl-C (Ctrl-Break on Windows), in a command or at a prompt | `warning: interrupted` | 130 |
+| `SIGTERM` (POSIX) | `warning: terminated` | 143 |
 | Declined `click.confirm(abort=True)` | `error: aborted` | 1 |
 | A type in `errors=` | `error: message`, the traceback first with `-d` | 1 |
 | ... with a `hint` attribute | ... then the hint, dim, last | 1 |
@@ -258,7 +259,8 @@ messages on STDERR:
 | Broken STDOUT pipe (`prog \| head -1`) | - | 1 |
 | Any other exception | trimmed traceback, `error:`, bug report hint | 70 |
 
-`pyclig.ExitCode` names the codes: `OK`, `FAILURE`, `USAGE`, `INTERNAL` & `INTERRUPT`. The bug
+`pyclig.ExitCode` names the codes: `OK`, `FAILURE`, `USAGE`, `INTERNAL`,
+`INTERRUPT` & `TERMINATE`. The bug
 report hint names the distribution's `Issues` project URL. Messages are never parsed as Rich
 markup: user input such as `[/b]` or `:warning:` prints as typed.
 
@@ -274,6 +276,37 @@ A command may catch Ctrl-C or its own errors to print a tailored message first -
 passes through untouched. Wrap third-party failures (e.g. network errors) in an `errors=` type, so
 users see a message instead of a crash. `errors=` goes on the root; `add_command` rejects it on a
 subcommand, where the runner would ignore it.
+
+## Signals & clean-up
+
+Each run installs its own `SIGINT`, `SIGTERM` & (on Windows) `SIGBREAK` handlers and restores the
+previous ones when it ends. The notice prints as soon as the signal arrives, not after the stack
+unwinds, and the run exits 130 (`interrupted`) or 143 (`terminated`). On Windows `os.kill(pid,
+SIGTERM)` is `TerminateProcess`: the process ends at once with exit 15 and no handler runs - send
+`CTRL_BREAK_EVENT` to a process group instead, which exits 130.
+
+Wrap clean-up that must run after an interrupt in `ctx.cleanup`, so it is bounded:
+
+```python
+try:
+    work(pool)
+finally:
+    with ctx.cleanup(timeout=10):
+        pool.shutdown()
+```
+
+| Case | STDERR | Exit |
+| --- | --- | --- |
+| No interrupt | - | as the command returns |
+| Interrupted, the block finishes | `cleaning up - press Ctrl-C again to skip` | 130 |
+| A second Ctrl-C in the block | `warning: clean-up skipped` | 130, at once |
+| The timeout passes | `warning: clean-up timed out after 10s` | 130, at once |
+| `SIGTERM` | `warning: terminated`, `cleaning up` | 143 |
+
+The timeout counts from the interrupt; `timeout=None` allows any time, though a second signal still
+skips. A skip or timeout flushes the streams and exits even while the block is stuck in a blocking
+call. Off the main thread, or with no interrupt, the block simply runs. A blocking Windows call can
+delay the first Ctrl-C until it returns.
 
 ## Output
 
@@ -343,6 +376,8 @@ flags also take `default=` and `envvar=`:
 | `port()` | `-p`, `--port PORT` | `port`, 1 to 65535 | Per command |
 | `user()` | `-u`, `--user NAME` | `user` | Per command |
 | `secret(name)` | `--<name>-file FILE` | `<name>`, the file's text (see Secrets) | Per command |
+| `timeout()` | `--timeout SECONDS` | `timeout`, a positive float (default 30) | Per command |
+| `confirm()` | `--confirm NAME` | `confirmed`, for `confirm_name` | Per command |
 
 ## Prompts & confirmation
 
@@ -374,6 +409,29 @@ with `2>log` it fails rather than hide the question in the log. Call `confirm` b
 and when the run cannot prompt it takes its default, or fails naming the option when it has none -
 so `--no-input` never lies.
 
+A severe action - one that cannot be undone, such as dropping a database - asks for the resource's
+name instead. `pyclig.confirm_name()` pairs with `options.confirm()`, and `--force` never skips it:
+
+```python
+@cli.command()
+@pyclig.options.confirm()
+@pyclig.pass_context
+def drop(ctx: pyclig.Context, confirmed: str | None) -> None:
+    """Drop the production database."""
+    pyclig.confirm_name(
+        ctx, message="Drop prod?", name="prod", confirmed=confirmed
+    )
+```
+
+| Case | STDERR | Exit |
+| --- | --- | --- |
+| `--confirm prod` | - | continues |
+| `--confirm` with another name | `error:` naming `prod`, the usage, a hint | 2 |
+| STDIN or STDERR is not a terminal | `error:` naming `--confirm`, the usage, a hint | 2 |
+| `--no-input` | `error:` naming `--no-input` & `--confirm`, the usage, a hint | 2 |
+| `prod` typed at the prompt | The prompt | continues |
+| Another name, an empty answer or EOF | `error: aborted` | 1 |
+
 ## Logging
 
 Log through the package logger - `logging.getLogger(__name__)` in any module of the package that
@@ -393,6 +451,31 @@ text:
 ```
 
 The logger's handlers, level & propagation are restored when the run ends.
+
+When the root logger has no handlers as the run starts, it gets one too: third-party `WARNING`
+records and `warnings.warn` print as `warning:` notices - the message only, with `file:line` added
+under `-d`. The root's level is never changed, and an application that configures the root itself
+(e.g. `logging.basicConfig`) is left alone. Both are restored when the run ends.
+
+`<PROG>_LOG_FILE=FILE` appends every record of the run, at `DEBUG` and in the plain `-d` format,
+to `FILE` (UTF-8), without changing what STDERR shows. A crash (exit 70) writes its traceback there
+too and adds the hint `debug log: FILE`. If the file cannot be opened, `warning: cannot write the
+debug log to FILE: reason` prints and the run goes on.
+
+`ctx.logs_on_failure()` holds the info lines of a block and prints them only if it fails:
+
+```python
+with ctx.logs_on_failure():
+    for step in steps:
+        logger.info("ran %s", step)
+        run(step)
+```
+
+Warnings & errors still print at once. Raise to fail: when an exception leaves the block, the held
+lines print before it propagates, so `error:` is still last; on success, `Abort`, `Exit` or
+Ctrl-C they are dropped. `-q` hides the replayed lines, `-d` prints every record live, and the log
+file gets every record either way. Keep the block outside `progress` & `status`, so the replay is
+not drawn over.
 
 ## Testing
 

@@ -285,3 +285,16 @@ def test_sample_findings(sample: Group) -> None:
     assert ("ARG-6", "sample copy") in found
     assert ("ARG-16", "sample login") in found
     assert ("HELP-3", "sample download") in found
+
+
+def test_run_variables_cleared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert a developer's `<PROG>_` variables add no findings & no file."""
+    monkeypatch.setenv("TESTS_LOG_FILE", str(tmp_path))
+    monkeypatch.setenv("TESTS_DEBUG", "1")
+    log = tmp_path / "debug.log"
+    assert check(clean) == []
+    monkeypatch.setenv("TESTS_LOG_FILE", str(log))
+    assert check(clean) == []
+    assert not log.exists()

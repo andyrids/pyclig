@@ -1,10 +1,17 @@
 """Tests for `pyclig._logging` - handlers scoped to a run."""
 
+import contextlib
+import io
 import logging
 import re
+import warnings
+from collections.abc import Callable, Iterator
+from pathlib import Path
 
+import click
 import pytest
 
+import pyclig
 from pyclig import Group
 from pyclig.testing import invoke
 from tests.conftest import RunSample
@@ -154,3 +161,359 @@ def test_debug_flag_after_variable_is_a_no_op(sample: Group) -> None:
     result = invoke(sample, ["-d", "log"], env={"TESTS_DEBUG": "1"})
     assert result.stderr.count("debug record") == 1
     assert result.stderr.count("warning record") == 1
+
+
+def _third_party() -> pyclig.Command:
+    """Return a CLI whose command warns & logs as a third-party library."""
+
+    @pyclig.command("probe")
+    def probe() -> None:
+        """Warn & log outside the package logger."""
+        warnings.warn("old api", DeprecationWarning, stacklevel=1)
+        library = logging.getLogger("thirdparty")
+        library.setLevel(logging.INFO)
+        library.info("library detail")
+        library.warning("library notice")
+
+    return probe
+
+
+BareRoot = Callable[[], contextlib.AbstractContextManager[None]]
+
+
+@pytest.fixture
+def bare_root() -> Iterator[BareRoot]:
+    """Return a context that empties the root logger's handlers, as no CLI
+    configured them.
+
+    NOTE: pytest adds its capture handlers to the root logger when the test
+    is called, after fixtures are set up, so the root is emptied in the body.
+    """
+
+    @contextlib.contextmanager
+    def emptied() -> Iterator[None]:
+        saved = logging.root.handlers[:]
+        logging.root.handlers[:] = []
+        try:
+            yield
+        finally:
+            logging.root.handlers[:] = saved
+
+    yield emptied
+    logging.getLogger("thirdparty").setLevel(logging.NOTSET)
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_warning_prints_message_only(bare_root: BareRoot) -> None:
+    """Assert `warnings.warn` prints `warning: msg`, with no path."""
+    with bare_root():
+        result = invoke(_third_party(), [])
+    assert "warning: old api" in result.stderr.splitlines()
+    assert "test_logging.py" not in result.stderr
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_warning_location_under_debug(bare_root: BareRoot) -> None:
+    """Assert `-d` shows where a warning was raised."""
+    with bare_root():
+        result = invoke(_third_party(), ["-d"])
+    (line,) = [x for x in result.stderr.splitlines() if "old api" in x]
+    assert PLAIN_RECORD.fullmatch(line)
+    assert "test_logging.py:" in line
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_logger_records(bare_root: BareRoot) -> None:
+    """Assert a library WARNING is a notice & its INFO needs `-d`."""
+    with bare_root():
+        result = invoke(_third_party(), [])
+        debug = invoke(_third_party(), ["-d"])
+    assert "warning: library notice" in result.stderr.splitlines()
+    assert "library detail" not in result.stderr
+    assert debug.stderr.count("library detail") == 1
+    assert debug.stderr.count("library notice") == 1
+
+
+@pytest.mark.filterwarnings("default")
+def test_third_party_notices_kept_under_quiet(bare_root: BareRoot) -> None:
+    """Assert `-q` keeps library notices, as it keeps package ones."""
+    with bare_root():
+        result = invoke(_third_party(), ["-q"])
+    lines = result.stderr.splitlines()
+    assert "warning: library notice" in lines
+    assert "warning: old api" in lines
+    assert "library detail" not in result.stderr
+
+
+@pytest.mark.filterwarnings("default")
+def test_root_and_showwarning_restored_after_runs(bare_root: BareRoot) -> None:
+    """Assert repeated runs leave the root logger & `showwarning` as found."""
+    with bare_root():
+        before = logging.root.handlers[:], logging.root.level
+        shown = warnings.showwarning
+        for args in ([], ["-d"]):
+            invoke(_third_party(), args)
+            assert (logging.root.handlers[:], logging.root.level) == before
+            assert warnings.showwarning is shown
+
+
+def test_configured_root_left_alone(bare_root: BareRoot) -> None:
+    """Assert a root logger with a handler keeps it & `showwarning` is kept."""
+    records: list[logging.LogRecord] = []
+
+    class Keep(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            records.append(record)
+
+    seen: list[Callable[..., object]] = []
+
+    @pyclig.command("probe")
+    def probe() -> None:
+        """Record the run's `showwarning` & log as a library."""
+        seen.append(warnings.showwarning)
+        logging.getLogger("thirdparty").warning("library notice")
+
+    handler = Keep()
+    with bare_root():
+        logging.root.addHandler(handler)
+        original = warnings.showwarning
+        result = invoke(probe, [])
+        assert logging.root.handlers == [handler]
+    assert seen == [original]
+    assert [r.getMessage() for r in records] == ["library notice"]
+    assert "library notice" not in result.stderr
+
+
+def test_warning_to_an_explicit_file_printed_there(
+    bare_root: BareRoot,
+) -> None:
+    """Assert `showwarning` with a `file` still writes the warning there."""
+    stream = io.StringIO()
+
+    @pyclig.command("probe")
+    def probe() -> None:
+        """Show a warning to an explicit stream."""
+        warnings.showwarning("old api", UserWarning, "lib.py", 3, stream)
+
+    with bare_root():
+        result = invoke(probe, [])
+    assert stream.getvalue() == "lib.py:3: UserWarning: old api\n"
+    assert "old api" not in result.stderr
+
+
+def test_log_file_gets_debug_records(sample: Group, tmp_path: Path) -> None:
+    """Assert `<PROG>_LOG_FILE` gets every record; the console is as before."""
+    path = tmp_path / "debug.log"
+    plain = invoke(sample, ["log"])
+    result = invoke(sample, ["log"], env={"TESTS_LOG_FILE": str(path)})
+    assert result.stderr == plain.stderr
+    lines = path.read_text(encoding="utf-8").splitlines()
+    levels = [
+        m["level"] for line in lines if (m := PLAIN_RECORD.fullmatch(line))
+    ]
+    assert levels == ["DEBUG", "INFO", "WARNING", "ERROR"]
+
+
+def test_log_file_appended(sample: Group, tmp_path: Path) -> None:
+    """Assert a second run appends to the log file."""
+    path = tmp_path / "debug.log"
+    for _ in range(2):
+        invoke(sample, ["log"], env={"TESTS_LOG_FILE": str(path)})
+    assert path.read_text(encoding="utf-8").count("debug record") == 2
+
+
+def test_log_file_with_debug(sample: Group, tmp_path: Path) -> None:
+    """Assert `-d` prints records to the console & the file alike."""
+    path = tmp_path / "debug.log"
+    result = invoke(sample, ["-d", "log"], env={"TESTS_LOG_FILE": str(path)})
+    assert result.stderr.count("debug record") == 1
+    assert path.read_text(encoding="utf-8").count("debug record") == 1
+
+
+@pytest.mark.filterwarnings("default")
+def test_log_file_gets_root_records(
+    bare_root: BareRoot, tmp_path: Path
+) -> None:
+    """Assert library records & warnings reach the file from a bare root."""
+    path = tmp_path / "debug.log"
+    with bare_root():
+        result = invoke(_third_party(), [], env={"TESTS_LOG_FILE": str(path)})
+        assert logging.root.handlers == []
+    text = path.read_text(encoding="utf-8")
+    assert "library notice" in text
+    assert "old api" in text
+    assert "library detail" not in result.stderr
+
+
+def test_log_file_gets_crash_traceback(sample: Group, tmp_path: Path) -> None:
+    """Assert exit 70 writes the traceback to the file & prints a hint."""
+    path = tmp_path / "debug.log"
+    result = invoke(
+        sample, ["fail", "--kind", "crash"], env={"TESTS_LOG_FILE": str(path)}
+    )
+    assert result.exit_code == 70
+    assert f"debug log: {path}" in result.stderr.splitlines()
+    text = path.read_text(encoding="utf-8")
+    assert "Traceback (most recent call last)" in text
+    (line,) = [x for x in text.splitlines() if "unexpected" in x]
+    assert PLAIN_RECORD.fullmatch(line)
+    assert (
+        " ERROR    [fail] unexpected RuntimeError  sample_cli.py:152" in line
+    )
+
+
+def test_log_file_unwritable_warns(sample: Group, tmp_path: Path) -> None:
+    """Assert a log file that cannot be opened warns & the run goes on."""
+    result = invoke(sample, ["log"], env={"TESTS_LOG_FILE": str(tmp_path)})
+    assert result.exit_code == 0
+    first = result.stderr.splitlines()[0]
+    assert first.startswith(
+        f"warning: cannot write the debug log to {tmp_path}: "
+    )
+    assert "warning record" in result.stderr
+
+
+def test_log_file_closed_after_run(sample: Group, tmp_path: Path) -> None:
+    """Assert the file is closed when the run ends, so it can be removed."""
+    path = tmp_path / "debug.log"
+    invoke(sample, ["-d", "log"], env={"TESTS_LOG_FILE": str(path)})
+    path.unlink()
+    for logger in (logging.getLogger("tests"), logging.root):
+        assert not [
+            h for h in logger.handlers if hasattr(h, "_pyclig_handler")
+        ]
+
+
+def test_log_file_variable_cleared_by_invoke(
+    sample: Group, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert `invoke` unsets an inherited `<PROG>_LOG_FILE`."""
+    path = tmp_path / "debug.log"
+    monkeypatch.setenv("TESTS_LOG_FILE", str(path))
+    invoke(sample, ["log"])
+    assert not path.exists()
+
+
+def _holding(
+    end: str = "ok", *, live: bool = False
+) -> tuple[pyclig.Command, list[tuple[int, list[logging.Handler]]]]:
+    """Return a CLI logging inside `ctx.logs_on_failure`, then ending `end`.
+
+    The list records the package logger's level & handlers after the block.
+    """
+    after: list[tuple[int, list[logging.Handler]]] = []
+    log = logging.getLogger("tests.held")
+
+    @pyclig.command("probe")
+    @pyclig.pass_context
+    def probe(ctx: pyclig.Context) -> None:
+        """Log inside the block, then succeed, fail or abort."""
+        package = logging.getLogger("tests")
+        try:
+            with ctx.logs_on_failure():
+                with (
+                    pyclig.progress(ctx.err)
+                    if live
+                    else contextlib.nullcontext()
+                ):
+                    log.debug("held debug")
+                    log.info("held step one")
+                    log.warning("live warning")
+                    log.info("held step two")
+                    if end == "fail":
+                        raise RuntimeError("boom")
+                    if end == "abort":
+                        raise click.Abort
+        finally:
+            after.append((package.level, package.handlers[:]))
+
+    return probe, after
+
+
+def test_held_logs_replayed_before_error() -> None:
+    """Assert a failing block replays its info lines, then `error:` prints."""
+    cli, _ = _holding("fail")
+    result = invoke(cli, [])
+    lines = [x for x in result.stderr.splitlines() if not x.startswith(" ")]
+    held = [x for x in lines if "held" in x or "warning" in x or "error" in x]
+    assert held[:3] == [
+        "warning: live warning",
+        "held step one",
+        "held step two",
+    ]
+    assert held[-1] == "error: unexpected RuntimeError: boom"
+    assert "held debug" not in result.stderr
+    assert result.stderr.count("live warning") == 1
+
+
+def test_held_logs_dropped_on_success() -> None:
+    """Assert a block that succeeds prints only its warnings."""
+    cli, _ = _holding()
+    result = invoke(cli, [])
+    assert result.stderr.splitlines() == ["warning: live warning"]
+
+
+def test_held_logs_not_replayed_on_abort() -> None:
+    """Assert `Abort` from the block replays nothing."""
+    cli, _ = _holding("abort")
+    result = invoke(cli, [])
+    assert result.exit_code == 1
+    assert "held step" not in result.stderr
+
+
+def test_held_logs_no_op_under_debug() -> None:
+    """Assert `-d` prints every record once, live."""
+    cli, _ = _holding("fail")
+    result = invoke(cli, ["-d"])
+    for message in ("held debug", "held step one", "live warning"):
+        assert result.stderr.count(message) == 1
+
+
+def test_held_logs_hidden_under_quiet() -> None:
+    """Assert `-q` drops replayed info lines & keeps the error."""
+    cli, _ = _holding("fail")
+    result = invoke(cli, ["-q"])
+    assert "held step" not in result.stderr
+    assert "warning: live warning" in result.stderr
+    assert "error: unexpected RuntimeError: boom" in result.stderr
+
+
+@pytest.mark.parametrize("end", ["ok", "fail"])
+def test_held_logs_in_the_file(tmp_path: Path, end: str) -> None:
+    """Assert the debug log file gets every record, held or not."""
+    path = tmp_path / "debug.log"
+    cli, _ = _holding(end)
+    invoke(cli, [], env={"TESTS_LOG_FILE": str(path)})
+    text = path.read_text(encoding="utf-8")
+    for message in ("held debug", "held step one", "held step two"):
+        assert text.count(message) == 1
+
+
+@pytest.mark.parametrize("end", ["ok", "fail", "abort"])
+def test_held_logs_state_restored(end: str) -> None:
+    """Assert the package logger's level & handlers are as before the block."""
+    cli, after = _holding(end)
+    seen: list[tuple[int, list[logging.Handler]]] = []
+
+    @pyclig.command("probe")
+    def before() -> None:
+        """Record the package logger before any block."""
+        package = logging.getLogger("tests")
+        seen.append((package.level, package.handlers[:]))
+
+    invoke(before, [])
+    invoke(cli, [])
+    assert after[0][0] == seen[0][0]
+    assert [type(h) for h in after[0][1]] == [type(h) for h in seen[0][1]]
+
+
+def test_held_logs_inside_progress_not_garbled() -> None:
+    """Assert a replay inside a live progress display prints whole lines."""
+    cli, _ = _holding("fail", live=True)
+    result = invoke(
+        cli, [], env={"TTY_INTERACTIVE": "1", "TTY_COMPATIBLE": "1"}
+    )
+    plain = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\r", "\n", result.stderr)
+    lines = [x.strip() for x in plain.splitlines() if x.strip()]
+    for message in ("held step one", "held step two", "warning: live warning"):
+        assert message in lines
