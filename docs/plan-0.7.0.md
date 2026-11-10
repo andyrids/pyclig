@@ -73,15 +73,18 @@ sees it.
 
 | Rule | Fires | Silent |
 | --- | --- | --- |
-| ARG-1 | An Argument typed BOOL, `Choice`, INT/FLOAT or a range (a setting) | STRING, Path, File, custom |
+| ARG-1 | An Argument typed BOOL, `Choice`, INT/FLOAT or a range | STRING, Path, File, custom |
 | ARG-3 | A short that is not a `STANDARD_SHORT` key | Standard shorts |
 | ARG-5 | 2 or more Arguments with differing `type.name` | `cp SRC DST`, or `nargs=-1` of one type |
 | ARG-6+ | A standard long form with a different short (`--force/-F`) | No short |
-| SUB-3+ | The same long name across commands with a different short, or flag vs value | `GlobalOption`s |
+| SUB-3+ | One long name, a different short or kind across commands | `GlobalOption`s |
 | SUB-4 | Siblings that mix `-` and `_`, or an upper-case name | - |
 | SUB-5 | update/upgrade or remove/delete; edit distance 1 with both names 4+ characters | Aliases |
 | ENV-2 | `envvar` not matching `^[A-Z_][A-Z0-9_]*$` | - |
-| ENV-4 | `envvar` in a common set (HOME, PATH, USER, SHELL, TERM, TMPDIR, LANG, TZ, EDITOR, VISUAL, PAGER, COLUMNS, LINES, DEBUG, NO_COLOR, FORCE_COLOR, `*_PROXY`) | The long name equals the variable name (`--editor`) |
+| ENV-4 | `envvar` in the common set below | Long name equals the variable (`--editor`) |
+
+ENV-4's common set: HOME, PATH, USER, SHELL, TERM, TMPDIR, LANG, TZ, EDITOR, VISUAL, PAGER,
+COLUMNS, LINES, DEBUG, NO_COLOR, FORCE_COLOR, `*_PROXY`.
 
 Tests:
 
@@ -215,12 +218,23 @@ Line refs are on `develop` at `e0351f8`.
 | me | P0 | `git fetch`, branch `feat/close-rows` from `origin/develop`, commit the plan | - | - |
 | A | P1 | Item 1 | `_conformance.py`; `test_conformance.py:1-175`; coverage rows by Grep | S1 |
 | A | P2 | Item 2 | `_conformance.py`; `testing.py:39-130`; `_run.py:148-165` | - |
-| A | P3 | Item 3 | `_run.py:232-300`; `_config.py:316-330`; `paths.py:79-100`; `test_signals.py:286-610`; `test_output.py:79-97`; `conftest.py:59-110`; `test_run.py:355-380` | **S3 you** |
-| B | P4 | Item 4 | `_core.py:496-600`, `:1005-1060`; `_flags.py`; `options.py:1-60`, `:154-222`; `test_core.py:120-180`, `:441-475`, `:587-610`; click `core.py:1401-1415`, `:2730-2780` | - |
+| A | P3 | Item 3 | See P3 below | **S3 you** |
+| B | P4 | Item 4 | See P4 below | - |
 | B | P5 | Item 5 | `_core.py:620-725`, `:905-945`; `_run.py:355-388`; `test_core.py:33-120` | - |
-| B | P6 | Item 6 | `_core.py:45-130`, `:597-622`, `:975-1003`; `_run.py:249-290`, `:436-447`; `testing.py:52-120` | **S6 you** |
+| B | P6 | Item 6 | See P6 below | **S6 you** |
 | B | P7 | Item 7 | `_run.py:355-388`, `:495-530`; `_output.py:184-195`; `test_run.py:215-235` | - |
-| B | P8 | Item 8, full gate | README & coverage by Grep; CHANGELOG `:1-40`; `roadmap.md`; template `standard-cli.md:120-130` | Mediator |
+| B | P8 | Item 8, full gate | See P8 below | Mediator |
+
+Read only, for the rows above:
+
+- P3: `_run.py:232-300`; `_config.py:316-330`; `paths.py:79-100`; `test_signals.py:286-610`;
+  `test_output.py:79-97`; `conftest.py:59-110`; `test_run.py:355-380`.
+- P4: `_core.py:496-600`, `:1005-1060`; `_flags.py`; `options.py:1-60`, `:154-222`;
+  `test_core.py:120-180`, `:441-475`, `:587-610`; click `core.py:1401-1415`, `:2730-2780`.
+- P6: `_core.py:45-130`, `:597-622`, `:975-1003`; `_run.py:249-290`, `:436-447`;
+  `testing.py:52-120`.
+- P8: README & coverage by Grep; CHANGELOG `:1-40`; `roadmap.md`; template
+  `standard-cli.md:120-130`.
 
 **Stops:**
 
@@ -253,7 +267,7 @@ Line refs are on `develop` at `e0351f8`.
 | Consumer | New kit findings | Failing tests |
 | --- | --- | --- |
 | pkgdx `main` | 0 | 0 |
-| dkais `main` | 1: `ARG-3 dkais download` (`-j/--jobs`, `_cli.py:328-335`) | 1: `test_cli_conforms_to_the_guidelines` (`tests/test_cli.py:879-881`) |
+| dkais `main` | 1: `ARG-3 dkais download` (`-j`, `_cli.py:328-335`) | 1: `test_cli.py:879-881` |
 | template (generated `cli=True`) | 0 | 0 |
 | template repo | - | 1: `tests/test_template.py:265`, when the pin is raised |
 
@@ -262,9 +276,18 @@ Line refs are on `develop` at `e0351f8`.
 | When | pkgdx | template | dkais | cotravel |
 | --- | --- | --- | --- | --- |
 | P8 / evaluation | Scratch clone | Generated project | Scratch clone | - |
-| After pyclig 0.7.0 is on PyPI | **1st:** `pyproject.toml:30` `pyclig~=0.7.0`, release 0.12.0 | - | - | - |
-| After pkgdx 0.12.0 | - | **2nd:** `pyproject.toml.jinja:23` `pyclig~=0.7.0`, `:27` `pkgdx~=0.12`; `test_template.py:265`; `pyproject.toml:45`; the `standard-cli.md` amendment; release | **3rd:** `pyproject.toml:29` `pyclig~=0.7.0`, `:36` `pkgdx~=0.12`; `test_cli.py:881` `ignore={"ARG-3": "-j/--jobs as in make -j"}` (or rename the short); re-lock | **4th:** re-lock `develop` |
+| After pyclig 0.7.0 | **1st:** pin, release 0.12.0 | - | - | - |
+| After pkgdx 0.12.0 | - | **2nd:** see below | **3rd:** see below | **4th:** re-lock |
 | After the template release | Copier update | - | Copier update | Copier update |
+
+Pin edits:
+
+- **pkgdx:** `pyproject.toml:30` `pyclig~=0.7.0`.
+- **template:** `pyproject.toml.jinja:23` `pyclig~=0.7.0`, `:27` `pkgdx~=0.12`;
+  `test_template.py:265`; `pyproject.toml:45`; the `standard-cli.md` amendment; release.
+- **dkais:** `pyproject.toml:29` `pyclig~=0.7.0`, `:36` `pkgdx~=0.12`; `test_cli.py:881`
+  `ignore={"ARG-3": "-j/--jobs as in make -j"}`, or rename the short; re-lock.
+- **cotravel:** re-lock `develop`.
 
 **Why this order:**
 
