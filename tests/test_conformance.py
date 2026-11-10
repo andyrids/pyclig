@@ -219,6 +219,30 @@ for _name in (
 named.add_command(named.commands["remove"], "rm")
 
 
+@pyclig.group("runs", examples=["runs show"])
+def runs() -> None:
+    """Group commands for the kit to run as samples."""
+    calls.append("runs")
+
+
+@runs.command()
+@click.option("--json", "as_json", is_flag=True, help="Print JSON.")
+@click.option("--broken", is_flag=True, help="Print JSON cut short.")
+@click.option("--code", type=int, default=0, help="The exit code.")
+@click.option("--say", default="shown", help="The line for STDOUT.")
+@click.option("--crash", is_flag=True, help="Print a traceback.")
+def show(
+    as_json: bool, broken: bool, code: int, say: str, crash: bool
+) -> None:
+    """Show a line, well or badly."""
+    calls.append("show")
+    if crash:
+        click.echo("Traceback (most recent call last):", err=True)
+    click.echo('{"say": ' if broken else '{"say": 1}' if as_json else say)
+    if code:
+        raise SystemExit(code)
+
+
 @pytest.fixture(autouse=True)
 def _no_callbacks() -> None:
     """Reset the callback record before every test."""
@@ -330,6 +354,59 @@ def test_naming_rules_by_rule_and_command() -> None:
         ("SUB-5", "named", "`status` & `stats` are easily confused"),
     ]
     assert calls == []
+
+
+def test_passing_samples_have_no_findings() -> None:
+    """Assert samples that behave are run & add no findings."""
+    samples = [
+        ["show"],
+        ["show", "--json"],
+        ["show", "--say", "no error: here"],
+        ("show", "--say", "Errors: 0"),
+    ]
+    assert check(runs, samples=samples) == []
+    assert calls == ["runs", "show"] * 4
+    assert_conforms(runs, samples=iter(samples))
+
+
+@pytest.mark.parametrize(
+    ("sample", "rule", "message"),
+    [
+        (["show", "--code", "3"], "BAS-4", "exits 3, not 0"),
+        (["show", "--json", "--broken"], "BAS-4", "`--json` prints no JSON"),
+        (
+            ["show", "--say", "error: no such file"],
+            "BAS-5",
+            "prints `error: no such file` to STDOUT",
+        ),
+        (
+            ["show", "--say", "warning: old flag"],
+            "BAS-5",
+            "prints `warning: old flag` to STDOUT",
+        ),
+        (["show", "--crash"], "ERR-2", "prints a traceback to STDERR"),
+    ],
+)
+def test_failing_sample_findings(
+    sample: list[str], rule: str, message: str
+) -> None:
+    """Assert a misbehaving sample is found, under its own command line."""
+    command = " ".join(["runs", *sample])
+    if " " in sample[-1]:
+        command = command.replace(sample[-1], f"'{sample[-1]}'")
+    assert check(runs, samples=[sample]) == [Finding(rule, command, message)]
+    with pytest.raises(AssertionError, match=rule):
+        assert_conforms(runs, samples=[sample])
+    assert check(runs, samples=[sample], ignore={rule: "a sample"}) == []
+
+
+def test_samples_clear_the_run_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert a developer's `<PROG>_DEBUG` does not reach a sample."""
+    monkeypatch.setenv("TESTS_DEBUG", "1")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    assert check(runs, samples=[["show"]]) == []
 
 
 def test_own_help_spelling_is_not_probed() -> None:

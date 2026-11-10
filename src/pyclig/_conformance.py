@@ -1,10 +1,11 @@
 """Check a CLI against the CLI guidelines, reporting by rule ID.
 
 The IDs are the rows of `docs/clig-coverage.md`. The kit never runs a
-command body: parameters are read from the command objects, and each
-command is probed as its own root with a help flag or an unknown flag,
-which click answers before any callback runs. Rules needing a run with
-real input are out of its reach.
+command body unless given samples: parameters are read from the command
+objects, and each command is probed as its own root with a help flag or
+an unknown flag, which click answers before any callback runs. Rules
+needing a run with real input are checked on `samples=`, the command
+lines the caller knows to be safe & expected to succeed.
 
 | Rule    | Finding                                                     |
 | ------- | ----------------------------------------------------------- |
@@ -25,13 +26,18 @@ real input are out of its reach.
 | HELP-1  | A help flag not answered on STDOUT with exit 0              |
 | BAS-2   | An unknown flag not answered with exit 2                    |
 | BAS-5   | An unknown flag answered on STDOUT                          |
+| BAS-4   | A sample exiting non-zero, or `--json` printing no JSON     |
+| BAS-5   | A sample printing an `error:` or `warning:` line to STDOUT  |
+| ERR-2   | A sample printing a traceback to STDERR                     |
 
 License:
     SPDX-License-Identifier: Apache-2.0
 """
 
+import json
 import re
-from collections.abc import Iterator, Mapping
+import shlex
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 import click
@@ -81,6 +87,8 @@ _SECRET = _config._SECRET
 """A name ending in a secret word - shared with `.env`, which skips them."""
 _UNKNOWN_FLAG = "--pyclig-no-such-flag"
 _CLEARED = ("COLUMNS", "FORCE_COLOR", "NO_COLOR", "TTY_COMPATIBLE")
+_MESSAGE = ("error:", "warning:")
+_TRACEBACK = "Traceback (most recent call last)"
 
 
 @dataclass(frozen=True)
@@ -103,16 +111,21 @@ class Finding:
 
 
 def check(
-    cli: click.Command, *, ignore: Mapping[str, str] | None = None
+    cli: click.Command,
+    *,
+    ignore: Mapping[str, str] | None = None,
+    samples: Iterable[Sequence[str]] = (),
 ) -> list[Finding]:
     """Return the findings for `cli` & every command below it.
 
     Args:
         cli: The CLI, usually a `pyclig.Group`.
         ignore: Rule IDs to leave out, each with the reason.
+        samples: Command lines to run for real, without the program name,
+            e.g. `[["list", "--json"]]` - each is expected to exit 0.
 
     Returns:
-        The findings, in command order.
+        The findings, in command order, then in sample order.
 
     Raises:
         ValueError: When an ignored rule has no reason.
@@ -137,22 +150,28 @@ def check(
         findings += _check_params(path, command)
         findings += _check_consistency(path, command, seen)
         findings += _probe(path, command, help_names)
+    for sample in samples:
+        findings += _run_sample(cli, list(sample))
     return [f for f in findings if f.rule not in ignored]
 
 
 def assert_conforms(
-    cli: click.Command, *, ignore: Mapping[str, str] | None = None
+    cli: click.Command,
+    *,
+    ignore: Mapping[str, str] | None = None,
+    samples: Iterable[Sequence[str]] = (),
 ) -> None:
     """Assert `cli` has no findings, listing them otherwise.
 
     Args:
         cli: The CLI, usually a `pyclig.Group`.
         ignore: Rule IDs to leave out, each with the reason.
+        samples: Command lines to run for real, without the program name.
 
     Raises:
         AssertionError: Listing every finding, one per line.
     """
-    findings = check(cli, ignore=ignore)
+    findings = check(cli, ignore=ignore, samples=samples)
     if findings:
         lines = [f"{len(findings)} CLIG findings:", *map(str, findings)]
         raise AssertionError("\n".join(lines))
@@ -409,3 +428,35 @@ def _probe(
             Finding("BAS-5", path, "an unknown flag prints to STDOUT")
         )
     return findings
+
+
+def _run_sample(cli: click.Command, sample: list[str]) -> list[Finding]:
+    """Return the findings from running `cli` with the sample's arguments."""
+    root = cli.name or ""
+    command = shlex.join([root, *sample])
+    env: dict[str, str | None] = dict.fromkeys(_CLEARED)
+    env.update(_run.cleared(cli.callback, root))
+    result = CliRunner().invoke(cli, sample, env=env, prog_name=root)
+    findings: list[Finding] = []
+    if result.exit_code != 0:
+        message = f"exits {result.exit_code}, not 0"
+        findings.append(Finding("BAS-4", command, message))
+    elif "--json" in sample and not _is_json(result.stdout):
+        findings.append(Finding("BAS-4", command, "`--json` prints no JSON"))
+    for line in result.stdout.splitlines():
+        if line.startswith(_MESSAGE):
+            message = f"prints `{line}` to STDOUT"
+            findings.append(Finding("BAS-5", command, message))
+    if _TRACEBACK in result.stderr:
+        message = "prints a traceback to STDERR"
+        findings.append(Finding("ERR-2", command, message))
+    return findings
+
+
+def _is_json(text: str) -> bool:
+    """Return whether `text` is one JSON document."""
+    try:
+        json.loads(text)
+    except ValueError:
+        return False
+    return True
