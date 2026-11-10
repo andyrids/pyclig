@@ -556,3 +556,194 @@ and a prompt raises instead of prompting. On a rebuilt wheel, by subprocess:
   once each in order, `iwc` runs its callback, the prompt is asked once on a pty.
 - Gate at `c4cadd5`: 371 passed, mypy clean. Consumers on the rebuilt wheel, unmodified: dkais 134
   passed, pkgdx 242 passed, the generated `cli=True` project 5 passed & `evaltool help` exit 0.
+
+## Round 6 - robustness and signals
+
+Date: 8 November 2026. `docs/plan-0.6.0.md` set seven items; `feat/robustness-signals` ships them
+in seven feature commits (`dcfeb3b` to `7e6dfc4`), two spike and result notes and the docs
+(`c578e65`). A fresh agent evaluated from the plan, `CLAUDE.md` and `git diff 69ae9ed...HEAD`
+alone, on a wheel of the branch (`SETUPTOOLS_SCM_PRETEND_VERSION=0.6.0`) installed into venvs
+holding only each consumer's own dependencies, with the pyclig pin overridden to the wheel.
+Consumers were cloned into a scratch directory and run unmodified.
+
+| Repository | Tests | Notes |
+| --- | --- | --- |
+| pyclig | 445 passed, 3 skipped, 97% | 3.11, 3.13 & 3.14; mypy 3.11 & 3.14 clean; prek clean |
+| dkais (scratch, `28feab9`) | 134 on 0.5.0; 134 on the wheel, 0 fail | As predicted; `develop` |
+| pkgdx (scratch, `f0ce0d5`) | 242 on 0.5.0; 242 on the wheel, 0 fail | As predicted; `main` (1) |
+| template (`76eb5b9`), generated `cli=True` | 5 on the wheel | `evaltool help` exit 0 |
+| pkgdx 0.7.0 from PyPI on the wheel | `pkgdx --help` exit 0; kit clean | The fallback case |
+
+1. With `ruff` & `mypy` off `PATH`, 14 `test_standards_hooks.py` tests fail identically on 0.5.0
+   and on the wheel (`ToolNotFoundError`): the environment, not pyclig.
+
+### Verdict on the 0.6.0 items
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| 1 signals | Confirmed: Windows 3.11, 3.14 & WSL | `test_notice_is_printed_before_unwinding` |
+| 2 `ctx.cleanup` | Confirmed, all six rows | `test_cleanup_second_signal_skips_the_block` |
+| 3 root & warnings | Confirmed | `test_third_party_warning_prints_message_only` |
+| 4 `_LOG_FILE` | Confirmed; defects 1 & 2 | `test_log_file_gets_crash_traceback` |
+| 5 `logs_on_failure` | Confirmed, pty `Progress` too | `test_held_logs_replayed_before_error` |
+| 6 `confirm_name` | Confirmed, every row, pty too | `test_confirm_name_typed_otherwise_aborts` |
+| 7 `options.timeout` | Confirmed; kit clean | `test_timeout_rejects_non_positive` |
+
+Items 1 & 2 are in `tests/test_signals.py`, 3-5 in `test_logging.py`, 6 in `test_core.py` and 7
+in `test_options.py`.
+
+Signals, by real subprocess: a `pyclig.command` polling `time.sleep(0.05)`, then on
+`KeyboardInterrupt` a `ctx.cleanup(timeout=T)` block that sleeps 0.3 s or sticks in
+`Event.wait`, `Thread.join` or `socket.recv`; Windows 3.11 & 3.14 children in a new process
+group sent `CTRL_BREAK_EVENT`, WSL (Python 3.14) children sent SIGINT and SIGTERM. In every run
+`warning: interrupted` came first, at +47-53 ms on Windows (the poll) and +1 ms on WSL, then
+`cleaning up - press Ctrl-C again to skip`, then the block's first line; exit 130. A second signal
+exited 10-14 ms (Windows) and 4-8 ms (WSL) after it with `warning: clean-up skipped`, for all
+three stuck blocks. A 0.5 s timeout fired at 561-574 ms (Windows) and 503-504 ms (WSL), `warning:
+clean-up timed out after 0.5s`, also for a nested outer `0.5` with an inner `timeout=None`. A
+signal landing inside a block on the normal path printed the notice and hint at +2-4 ms, let the
+block finish (1.9 s) and exited 130; a second one there skipped in 8-13 ms. On WSL SIGTERM gave
+`warning: terminated`, the hint `cleaning up`, and 143 on the plain, skip and timeout paths.
+`pyclig.run` on WSL: 130 and 143 within 15 ms. Windows `os.kill(pid, SIGTERM)`: exit 15, no
+output, as documented. Ctrl-C at a `confirm` prompt on a WSL pty: `Proceed? [y/N]:` then one
+`warning: interrupted` line, 130. A manual Ctrl-C in Windows Terminal and in WSL was not done: an
+agent cannot drive a console, so the transcripts are left to the maintainer.
+
+Logs, by subprocess on Windows 3.14 (package `cli`): inside `logs_on_failure` a `RuntimeError`
+prints `step 1`, `step 2` before the traceback and `error: unexpected RuntimeError: boom` (70);
+success, `Abort` (1) and `ctx.exit(0)` print none; a `UsageError` replays (it is an `Exception`);
+`-d` prints every record live with no duplicate; `-q` hides the replay; `level=DEBUG` holds debug
+lines too; a `warning` inside prints at once, before the replay. On a WSL pty (`script`) with a
+`Progress` on `ctx.err` inside the block the bar frames end, then `warning: live warning`, the
+replayed `step 0`-`step 3`, the traceback and `error:` - nothing drawn over.
+
+Root and warnings: a `warnings.warn(UserWarning)` prints `warning: Unverified HTTPS request is
+being made` with no path; `-d` prints `WARNING  [UserWarning] ...  logcli.py:17`; a
+`urllib3.connectionpool` WARNING prints as a notice and its INFO does not; `-q` keeps both. With
+`logging.basicConfig` first, the output is byte-for-byte the pre-0.6 one: the default
+`file:line: UserWarning:` pair and `BASIC WARNING ...` lines, under `-d` too. Pkgdx's caplog tests
+are among its 242.
+
+`<PROG>_LOG_FILE`: `CLI_LOG_FILE=run.log` gets `DEBUG` and `INFO` records from a run without
+`-d`, appends across runs, gets the root's `[UserWarning]` and `urllib3` records, and on exit 70
+the traceback after `ERROR    [None] unexpected ValueError  _logging.py:0`, with the hint
+`debug log: C:\...\run.log` (absolute). A missing directory warns `cannot write the debug log to
+...: No such file or directory`, exit 0; a blank value is ignored.
+
+Import and run state: `-X importtime` on 3.11 and 3.14 shows `import pyclig` adding
+`pyclig._signals` and none of `socket`, `select`, `rich.traceback`, `rich.logging`,
+`importlib.metadata` or `_conformance`; `--help` adds none of them, `-v` only
+`importlib.metadata`, a run without `ctx.cleanup` none. `Requires-Dist` is still `click~=8.5` &
+`rich~=15.0`. After five in-process `invoke` runs (plain, `-d`, with `LOG_FILE`, a crash with
+`LOG_FILE`, and `raise_signal(SIGINT)` inside `ctx.cleanup`, exit 130) the SIGINT, SIGTERM and
+SIGBREAK handlers, the wakeup fd (-1), `showwarning`, the root handlers (none) and level, and the
+package logger's level, handlers and propagation are all as before.
+
+Reversion: each feature commit's tests were run with `src/` at the commit's parent (files the
+commit added removed). `dcfeb3b` and `19696f7` fail at collection (`confirm_name`,
+`options.timeout`). `4e3ead0`: `raise_signal(SIGTERM)` with `SIG_DFL` kills pytest at
+`test_signal_notice_and_exit_code[sigterm]` after one pass, exit 3. `089b82b`: 18 of 20 - 11
+error on the `exits` fixture (`_signals._exit`) and 7 subprocess tests fail. `9531a35`: 5 of 7 -
+`test_root_and_showwarning_restored_after_runs` and `test_configured_root_left_alone` pass
+without the feature by design. `3ebd4e6`: 7 of 8 - `test_log_file_variable_cleared_by_invoke`
+passes by design. `7e6dfc4`: 8 of 11 - the three `test_held_logs_state_restored` cases pass by
+design.
+
+### Defects found in 0.6.0
+
+1. `assert_conforms` inherits the developer's `<PROG>_LOG_FILE`: the kit clears only `_CLEARED`
+   (`_conformance.py:53`, `:198`), where `testing.invoke` also clears `_PREFIXED`
+   (`testing.py:48`, `:120`). With `EVALTOOL_LOG_FILE=.../nodir/x.log` the generated project's
+   `test_conforms` fails with `2 CLIG findings`: `HELP-1 evaltool -h exits 0, printing to STDERR`
+   and the same for `--help`, from `warning: cannot write the debug log to ...`; a writable path
+   is opened (created) by every probe. The P3 note that the kit "never learns `<PROG>`" does not
+   hold: the probe has the command's name as `path`.
+2. `log_failure` (`_logging.py:196-214`) builds the crash record with `__file__`, line 0 and no
+   function, so the file reads `ERROR    [None] unexpected ValueError  _logging.py:0`. Cosmetic;
+   the traceback below it is complete.
+3. `_signals.cleanup` (`_signals.py:131-133`) calls `watcher.stop()`, which closes the pipe or
+   socket pair, before it sets `state.watcher = None`; a signal in that window makes the handler
+   (`:329-333`) call `notify` on a closed end and raise `OSError` out of the handler. A window of
+   microseconds, found by reading, not reproduced.
+
+### Integration on `feat/robustness-signals`
+
+- Real CLIs on the wheel: `dkais download --start 2026-10 --end 2026-10 --data-dir X --dry-run`
+  prints `31 archives to download · 19.3 GB · 0 already present`, exit 0, with no `warning:`
+  line, on 0.5.0 and on the wheel alike: no third-party warning became visible in a dry run.
+  `assert_conforms` clean on dkais & pkgdx; dkais `test_fast_paths_skip_heavy_imports` 6 passed.
+- The fallback case: pkgdx 0.7.0 from PyPI resolves with the wheel; `pkgdx --help` exit 0 with
+  empty STDERR & `assert_conforms` clean.
+- PyPI, re-checked: pkgdx 0.7.0 requires `pyclig~=0.2`, 0.8.0 `~=0.3.0`, 0.9.0 `~=0.4.0`, 0.10.0
+  `~=0.5.0`; 0.10.0 is the latest and pyclig's is 0.5.0. The plan's order - pkgdx, template,
+  dkais, cotravel - holds. Issues drafted, not filed.
+- Start-up, median of 15 (0.5.0 to branch): `dkais --help` 216 to 209 ms, `dkais -v` 208 to 210,
+  `import dkais.__main__` 188 to 182, `import pyclig` 151 to 150 in the dkais venvs and 143 to
+  147 in bare ones (`python -c pass` 59-60). Within the run-to-run spread.
+- Claims: every row moved to `done` in `clig-coverage.md` names behaviour that was observed;
+  CHANGELOG matches the code and dates 0.5.0; README's exit-code, clean-up and confirmation
+  tables match the output above, and its pin reads `pyclig~=0.6.0`.
+- Every prediction in the plan held: 0 consumer failures, kit clean, `test_fast_paths` passes,
+  `test_main` passes, pkgdx 0.7.0 runs. None missed.
+
+### Departures from the 0.6.0 plan
+
+- A fourth `State` field, `watcher`, plus `log_file` (`_run.py:114-118`).
+- A foreign wakeup fd is left in place (`Watcher.start`, `_signals.py:180-187`) and the Python
+  handler forwards the signal to the watcher; `test_cleanup_foreign_wakeup_fd_is_restored`.
+- Windows test children poll `recv` with a 0.1 s timeout; this round's probe polled `sleep`.
+- An interrupt while the runner reports is caught in `_run.execute` (`_run.py:385-388`).
+- `showwarning` with an explicit `file` writes `formatwarning` there (`_logging.py:383-387`).
+- Under `-d` a warning's `[funcName]` is its category, e.g. `[UserWarning]`.
+- `<PROG>_LOG_FILE` is not in the kit's `_CLEARED`: defect 1.
+- The exit-70 hint shows the absolute path (`FileHandler.baseFilename`).
+- No helper thread prints the first notice; the spike found `Console._lock` an `RLock`.
+- `confirm_name` prompts `MESSAGE Type 'NAME' to confirm:` on STDERR, the message first.
+- A `UsageError` leaving `logs_on_failure` replays the held lines; the plan names `Exception`.
+
+### Remaining after 0.6.0
+
+- The manual Ctrl-C transcripts in Windows Terminal and WSL (plan step 2).
+- INT-5 stays `partial`: on Windows the notice waits for the main thread's blocking call, and a
+  plain `recv` never sees Ctrl-Break (the spike). The probe's 50 ms is its poll, not pyclig.
+- Not verified this round: macOS, and the subprocess matrix on 3.13 (3.11 & 3.14 were run).
+- pkgdx's own "interrupted" line (`standards/_cli.py:245-250`) will now follow pyclig's notice; a
+  pkgdx adoption PR, not a pyclig defect.
+
+### Fixed after evaluation (0.6.0)
+
+Three fix commits, `0cbae09`, `aec1596` & `81751d2`, re-checked by the same probes on a rebuilt
+wheel (`SETUPTOOLS_SCM_PRETEND_VERSION=0.6.0`) reinstalled into every venv above.
+
+1. The kit now clears the run's own variables: `_run.cleared(callback, path)` (`_run.py:144-159`)
+   prefixes `RUN_VARIABLES` (`DEBUG`, `NO_COLOR`, `CONFIG`, `PROFILE`, `LOG_FILE`) with the same
+   `package_of` + `prefix_of` that `Command.main` and `pyclig.run` use, and both `_probe`
+   (`_conformance.py:198-200`) and `testing.invoke` (`testing.py:117-119`) take it. On the
+   generated project `test_main.py` passes 3 of 3 with `EVALTOOL_LOG_FILE` unwritable, with it
+   writable and no file created, with `EVALTOOL_DEBUG=1`, and with all three plus
+   `EVALTOOL_NO_COLOR=1`: `test_run_variables_cleared`.
+2. `log_failure` walks to the innermost traceback frame (`_logging.py:208-215`): the file now
+   reads `ERROR    [crash] unexpected ValueError  logcli.py:88`, and a failure inside
+   `logs_on_failure` `ERROR    [held] unexpected RuntimeError  logcli.py:38`:
+   `test_log_file_gets_crash_traceback`.
+3. `cleanup` sets `state.watcher = None` before `watcher.stop()` (`_signals.py:131-133`), and
+   `notify` returns False on a closed end so the handler takes the plain path (`:204-214`,
+   `:348-350`): `test_cleanup_detaches_the_watcher_before_stopping` &
+   `test_signal_to_a_stopped_watcher_takes_the_plain_path`. Reviewed, not reproduced, as before.
+
+Each fix's new or changed tests fail with `src/` at the fix's parent: `test_run_variables_cleared`
+with `[Finding(rule... printing to STDERR')] == []`, `test_log_file_gets_crash_traceback` with
+`[None] ... _logging.py:0`, and both signal tests.
+
+Gate at `81751d2`: 448 passed, 3 skipped on 3.11 & 3.14; mypy clean on both; prek clean; 97%
+coverage. Signals on the rebuilt wheel, Windows 3.11 & 3.14 and WSL: notice at +47-52 ms
+(Windows) and +1 ms (WSL); the second signal exits 11-13 ms (Windows) and 3-8 ms (WSL) after it
+with `clean-up skipped`; the 0.5 s timeout at 562-568 ms and 503-505 ms; SIGTERM on WSL 143 on
+the plain, skip and timeout paths; `os.kill(SIGTERM)` on Windows 15. Consumers on the rebuilt
+wheel, unmodified: dkais 134 passed, pkgdx 242 passed, the generated `cli=True` project 5 passed &
+`evaltool help` exit 0.
+
+New in the fixes: none. One residual, noted and not a defect: a signal landing between the
+detach and `watcher.stop()` with `state.signal` already set raises `KeyboardInterrupt` out of
+the `finally`, so `stop` is skipped; the run exits 130 at once, and only an in-process runner
+would keep the daemon thread and its wakeup fd until the process ends. A window of microseconds.

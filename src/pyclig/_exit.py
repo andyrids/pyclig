@@ -23,6 +23,7 @@ class ExitCode(IntEnum):
         USAGE: The command line was invalid.
         INTERNAL: An unexpected exception, i.e. a bug.
         INTERRUPT: Interrupted by Ctrl-C (128 + `SIGINT`).
+        TERMINATE: Terminated by `SIGTERM` (128 + `SIGTERM`).
     """
 
     OK = 0
@@ -30,3 +31,4 @@ class ExitCode(IntEnum):
     USAGE = 2
     INTERNAL = 70
     INTERRUPT = 130
+    TERMINATE = 143

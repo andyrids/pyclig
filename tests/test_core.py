@@ -1407,3 +1407,103 @@ def test_emit_json_refuses_nan() -> None:
     result = invoke(_emitter([{"x": float("nan")}]), ["--json"])
     assert result.exit_code == pyclig.ExitCode.INTERNAL
     assert result.stdout == ""
+
+
+@pyclig.group("sever")
+def sever_cli() -> None:
+    """Run severe actions."""
+
+
+@sever_cli.command()
+@pyclig.options.force()
+@pyclig.options.confirm()
+@pyclig.pass_context
+def drop(ctx: pyclig.Context, force: bool, confirmed: str | None) -> None:
+    """Drop the `prod` database."""
+    pyclig.confirm_name(
+        ctx, message="Drop prod?", name="prod", confirmed=confirmed
+    )
+    click.echo("dropped")
+
+
+SEVERE_PROMPT = "Drop prod? Type 'prod' to confirm: "
+
+
+def test_confirm_name_matching_flag_proceeds() -> None:
+    """Assert `--confirm=NAME` returns without a prompt."""
+    result = invoke(sever_cli, ["drop", "--confirm=prod"])
+    assert result.exit_code == 0
+    assert result.stdout == "dropped\n"
+    assert result.stderr == ""
+
+
+def test_confirm_name_mismatch_is_a_usage_error() -> None:
+    """Assert a wrong `--confirm` names the expected name, exit 2."""
+    result = invoke(
+        sever_cli, ["drop", "--confirm=dev"], in_tty=True, err_tty=True
+    )
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert "`prod`" in result.stderr
+
+
+def test_confirm_name_cannot_prompt_names_the_flag() -> None:
+    """Assert no terminal fails naming `--confirm=NAME`, exit 2."""
+    result = invoke(sever_cli, ["drop"])
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert "there is no terminal to ask on" in result.stderr
+    assert "pass `--confirm=prod` to proceed" in result.stderr
+
+
+def test_confirm_name_no_input_names_the_flag() -> None:
+    """Assert `--no-input` fails naming itself & `--confirm=NAME`."""
+    result = invoke(
+        sever_cli, ["--no-input", "drop"], in_tty=True, err_tty=True
+    )
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert "`--no-input` was given" in result.stderr
+    assert "--confirm=prod" in result.stderr
+
+
+def test_confirm_name_force_does_not_bypass() -> None:
+    """Assert `--force` neither skips nor satisfies the confirmation."""
+    result = invoke(sever_cli, ["drop", "--force"])
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+
+
+def test_confirm_name_typed_match_proceeds() -> None:
+    """Assert typing the name at the STDERR prompt proceeds."""
+    result = invoke(
+        sever_cli, ["drop"], in_tty=True, err_tty=True, input="prod\n"
+    )
+    assert result.exit_code == 0
+    assert result.stdout == "dropped\n"
+    assert result.stderr == f"{SEVERE_PROMPT}prod\n"
+
+
+@pytest.mark.parametrize(
+    "answer", ["dev\n", "\n", ""], ids=["mismatch", "empty", "eof"]
+)
+def test_confirm_name_typed_otherwise_aborts(answer: str) -> None:
+    """Assert a wrong name, an empty answer or EOF aborts, exit 1."""
+    result = invoke(
+        sever_cli, ["drop"], in_tty=True, err_tty=True, input=answer
+    )
+    assert result.exit_code == pyclig.ExitCode.FAILURE
+    assert result.stdout == ""
+    assert result.stderr.startswith(SEVERE_PROMPT)
+    assert result.stderr.endswith("error: aborted\n")
+
+
+def test_confirm_name_interrupted_on_terminal() -> None:
+    """Assert Ctrl-C at the prompt is an interrupt, exit 130."""
+    result = invoke(
+        sever_cli,
+        ["drop"],
+        in_tty=True,
+        err_tty=True,
+        input=InterruptingInput(),
+    )
+    assert result.exit_code == pyclig.ExitCode.INTERRUPT
+    assert result.stderr.endswith("warning: interrupted\n")

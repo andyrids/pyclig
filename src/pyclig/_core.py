@@ -15,6 +15,7 @@ License:
 
 import contextlib
 import functools
+import logging
 import sys
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
@@ -30,7 +31,7 @@ from typing import (
 import click
 from rich.console import Console
 
-from pyclig import _config, _flags, _logging, _output, _run
+from pyclig import _config, _flags, _logging, _output, _run, _signals
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
 
@@ -228,6 +229,71 @@ class Context(click.Context):
         with self.out.pager(pager=_output._ClickPager(), styles=True):
             yield
 
+    @contextlib.contextmanager
+    def logs_on_failure(self, *, level: int = logging.INFO) -> Iterator[None]:
+        """Hold the block's info logs & show them only if it fails.
+
+        ```python
+        with ctx.logs_on_failure():
+            for step in steps:
+                logger.info("ran %s", step)
+                run(step)
+        ```
+
+        Records from `level` up to `WARNING` are held; warnings & errors
+        print at once. If an exception leaves the block, the held lines
+        print before it propagates, so `error:` is still last; on success,
+        `Abort`, `Exit` or Ctrl-C they are dropped. Raise to fail: a
+        failure the block only logs replays nothing. `-q` still hides the
+        replayed lines, and under `-d` every record prints live. A
+        `<PROG>_LOG_FILE` gets every record either way. Keep the block
+        outside `progress` & `status`, so the replay is not drawn over.
+
+        Args:
+            level: The lowest level held, e.g. `logging.DEBUG`.
+
+        Yields:
+            Nothing; the held lines print if the block raises.
+        """
+        state = _require_state(self)
+        with _logging.held(state.package, level=level, debug=state.debug):
+            yield
+
+    @contextlib.contextmanager
+    def cleanup(self, *, timeout: float | None = 10.0) -> Iterator[None]:
+        """Bound a clean-up after an interrupt: a second Ctrl-C or the
+        timeout skips it.
+
+        ```python
+        try:
+            work(process)
+        finally:
+            with ctx.cleanup():
+                process.shutdown()
+        ```
+
+        Entered after an interrupt, the block prints `cleaning up - press
+        Ctrl-C again to skip` (just `cleaning up` after SIGTERM) and the
+        timer starts. A signal arriving inside the block prints the notice
+        & hint and lets the block finish, then the run exits 130 or 143.
+        Another signal prints `warning: clean-up skipped`; the timeout
+        prints `warning: clean-up timed out after 10s`; both flush the
+        streams & exit at once with the code, even while the block is
+        stuck in a blocking call. If the block raises, the exception
+        propagates and the timer is cancelled. Nested blocks keep the
+        outermost timer. Off the main thread, or with no interrupt, the
+        block simply runs.
+
+        Args:
+            timeout: Seconds allowed, counted from the interrupt; None
+                for no bound (a second signal still skips).
+
+        Yields:
+            Nothing; the block is the clean-up.
+        """
+        with _signals.cleanup(_require_state(self), timeout=timeout):
+            yield
+
 
 def _require_state(ctx: click.Context) -> _run.State:
     """Return the run's state, or raise when there is none."""
@@ -314,6 +380,68 @@ def confirm(ctx: click.Context, *, message: str, force: bool) -> None:
             ctx=ctx,
         )
     click.confirm(message, default=False, abort=True, err=True)
+
+
+def confirm_name(
+    ctx: click.Context, *, message: str, name: str, confirmed: str | None
+) -> None:
+    """Ask the user to type a resource's name before a severe action.
+
+    | Case                          | Outcome                                |
+    | ----------------------------- | -------------------------------------- |
+    | `confirmed` is `name`         | Returns, without a prompt              |
+    | `confirmed` is anything else  | `error:` naming `name`, usage - 2      |
+    | STDIN or STDERR not a terminal| `error:` naming `--confirm`, usage - 2 |
+    | `--no-input`                  | `error:` naming both flags, usage - 2  |
+    | The typed `name`              | Returns                                |
+    | Another name, empty, EOF      | `error: aborted` - exit 1              |
+    | Ctrl-C                        | `warning: interrupted` - exit 130      |
+
+    NOTE: `--force` does not bypass it - a severe action needs the name.
+    Call it before starting any live display (`Progress`, `Status`).
+
+    ```python
+    @cli.command()
+    @pyclig.options.confirm()
+    @pyclig.pass_context
+    def drop(ctx: pyclig.Context, confirmed: str | None) -> None:
+        \"\"\"Drop the production database.\"\"\"
+        pyclig.confirm_name(
+            ctx, message="Drop prod?", name="prod", confirmed=confirmed
+        )
+    ```
+
+    Args:
+        ctx: The command's context.
+        message: The question, e.g. `Drop the production database?`.
+        name: The name to type, e.g. the resource's name.
+        confirmed: The `--confirm` value, or None.
+
+    Raises:
+        click.UsageError: When `confirmed` is wrong or the run cannot prompt.
+        click.Abort: When the prompt is declined or interrupted.
+    """
+    if confirmed is not None:
+        if confirmed != name:
+            raise click.UsageError(
+                f"`--confirm` is not the expected name, `{name}`", ctx=ctx
+            )
+        return
+    state = _require_state(ctx)
+    if not state.can_prompt:
+        raise click.UsageError(
+            f"confirmation needed, but {_cannot_prompt(state)} - "
+            f"pass `--confirm={name}` to proceed",
+            ctx=ctx,
+        )
+    answer = click.prompt(
+        f"{message} Type '{name}' to confirm",
+        default="",
+        show_default=False,
+        err=True,
+    )
+    if answer != name:
+        raise click.Abort
 
 
 def _cannot_prompt(state: _run.State) -> str:
@@ -638,8 +766,10 @@ class Command(click.Command):
         )
         _run.apply_environment(state)
         click_main = super().main
-        with _logging.scoped(package):
-            _logging.configure(package, err, debug=state.debug)
+        with _signals.scoped(state), _logging.scoped(package):
+            _logging.configure(
+                package, err, debug=state.debug, log_file=state.log_file
+            )
             code = _run.execute(
                 lambda: click_main(
                     args,
@@ -963,8 +1093,10 @@ def run(
     )
     _run.apply_environment(state)
     ctx = Context(click.Command(prog), info_name=prog, pyclig_state=state)
-    with _logging.scoped(state.package), ctx:
-        _logging.configure(state.package, err, debug=state.debug)
+    with _signals.scoped(state), _logging.scoped(state.package), ctx:
+        _logging.configure(
+            state.package, err, debug=state.debug, log_file=state.log_file
+        )
         code = _run.execute(func, state, prog=prog)
     sys.exit(code)
 
