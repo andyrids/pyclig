@@ -237,7 +237,8 @@ def configure_streams() -> None:
     UTF-8, unless `PYTHONIOENCODING` chose an encoding - then unencodable
     characters are replaced instead.
     """
-    explicit = "PYTHONIOENCODING" in os.environ
+    # Python reads an empty value as unset, so the locale still applies
+    explicit = bool(os.environ.get("PYTHONIOENCODING"))
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             if explicit:

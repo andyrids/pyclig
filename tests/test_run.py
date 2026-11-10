@@ -363,6 +363,15 @@ def test_explicit_io_encoding_replaces_unencodable(
     assert "UnicodeEncodeError" not in result.stderr
 
 
+def test_empty_io_encoding_is_not_explicit(run_sample: RunSample) -> None:
+    """Assert `PYTHONIOENCODING=` is unset, as Python reads it: UTF-8."""
+    result = run_sample(
+        "show", "--value", "✓ → ·", env={"PYTHONIOENCODING": ""}
+    )
+    assert result.returncode == 0
+    assert "✓ → ·" in result.stdout
+
+
 def _run_hook(
     func: Any, capsys: pytest.CaptureFixture[str], **kwargs: Any
 ) -> tuple[int, str]:
