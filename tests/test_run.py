@@ -429,6 +429,78 @@ def test_empty_io_encoding_is_not_explicit(run_sample: RunSample) -> None:
     assert "✓ → ·" in result.stdout
 
 
+_POSIX = pytest.mark.skipif(sys.platform == "win32", reason="POSIX only")
+_NO_HOME = ("HOME", "USERPROFILE", "APPDATA")
+_HOSTILE = [
+    pytest.param({"unset": _NO_HOME}, id="no-home"),
+    pytest.param({"env": {"LC_ALL": "C"}}, id="c-locale"),
+    pytest.param({"stdin": subprocess.DEVNULL}, id="null-stdin"),
+    pytest.param({"stdin": "closed"}, id="closed-stdin", marks=_POSIX),
+    pytest.param({"env": {"TERM": "dumb"}}, id="dumb-term"),
+    pytest.param({"env": {"COLUMNS": "20"}}, id="narrow"),
+    pytest.param({"env": {"PYTHONIOENCODING": ""}}, id="empty-encoding"),
+    pytest.param({"cwd": "read-only"}, id="read-only-cwd", marks=_POSIX),
+    pytest.param({"cwd": "deleted"}, id="deleted-cwd", marks=_POSIX),
+]
+
+
+def _hostile(
+    tmp_path: Any, args: list[str], setting: dict[str, Any]
+) -> subprocess.CompletedProcess[str]:
+    """Run the sample CLI in one hostile environment."""
+    env = sample_env(setting.get("env"))
+    for name in setting.get("unset", ()):
+        env.pop(name, None)
+    stdin = setting.get("stdin")
+    hooks: list[Any] = []
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    if stdin == "closed":
+        stdin = None
+        hooks.append(lambda: os.close(0))
+    if setting.get("cwd") == "read-only":
+        cwd.chmod(0o500)
+    if setting.get("cwd") == "deleted":
+        hooks.append(cwd.rmdir)
+    return subprocess.run(
+        [sys.executable, str(SAMPLE), *args],
+        stdin=stdin,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        cwd=cwd,
+        check=False,
+        preexec_fn=(lambda: [hook() for hook in hooks]) if hooks else None,
+    )
+
+
+@pytest.mark.parametrize("setting", _HOSTILE)
+@pytest.mark.parametrize(
+    ("args", "code"),
+    [
+        pytest.param(["--help"], 0, id="help"),
+        pytest.param(["-v"], 0, id="version"),
+        pytest.param(["show", "--value", "said"], 0, id="notice"),
+        pytest.param(["fail", "--kind", "crash"], 70, id="crash"),
+    ],
+)
+def test_hostile_environment_changes_nothing(
+    tmp_path: Any, args: list[str], code: int, setting: dict[str, Any]
+) -> None:
+    """Assert help, version, a notice & a crash behave in any environment."""
+    result = _hostile(tmp_path, args, setting)
+    assert result.returncode == code, result.stderr
+    if code:
+        assert "RuntimeError: boom" in result.stderr
+    else:
+        assert "Traceback" not in result.stderr
+        assert result.stdout
+    if args[0] == "show":
+        assert "warning: said" in result.stderr
+
+
 def _run_hook(
     func: Any, capsys: pytest.CaptureFixture[str], **kwargs: Any
 ) -> tuple[int, str]:

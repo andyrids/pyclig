@@ -2,6 +2,7 @@
 
 import io
 import itertools
+import sys
 import threading
 from unittest.mock import patch
 
@@ -74,6 +75,33 @@ def test_hanging_indents_wrapped_lines() -> None:
     console, buffer = _console(tty=False, width=20)
     pyclig.hanging(console, head="✓", message="alpha beta gamma delta")
     assert buffer.getvalue().splitlines() == ["✓ alpha beta gamma", "  delta"]
+
+
+def test_notice_items_from_threads_never_interleave() -> None:
+    """Assert a notice & its items stay together under threads."""
+    console, buffer = _console(tty=False)
+    items = ["a.txt", "b.txt", "c.txt"]
+
+    def emit() -> None:
+        for _ in range(20):
+            pyclig.notice(
+                console, level="error", message="3 files failed", items=items
+            )
+
+    interval = sys.getswitchinterval()
+    sys.setswitchinterval(1e-6)
+    try:
+        threads = [threading.Thread(target=emit) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+    finally:
+        sys.setswitchinterval(interval)
+
+    lines = buffer.getvalue().splitlines()
+    group = ["error: 3 files failed", "  a.txt", "  b.txt", "  c.txt"]
+    assert lines == group * (8 * 20)
 
 
 def test_wrapped_notices_from_threads_never_interleave() -> None:

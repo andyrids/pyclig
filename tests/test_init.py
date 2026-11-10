@@ -51,6 +51,22 @@ def test_import_has_no_side_effects() -> None:
     }
 
 
+def test_import_takes_under_100_ms() -> None:
+    """Assert `import pyclig` is quick enough to feel instant: best of 3."""
+    times: list[int] = []
+    for _ in range(3):
+        result = subprocess.run(
+            [sys.executable, "-X", "importtime", "-c", "import pyclig"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        rows = (line.split("|") for line in result.stderr.splitlines())
+        times += [int(r[1]) for r in rows if r[-1] == " pyclig"]
+    assert len(times) == 3
+    assert min(times) < 100_000, times
+
+
 def test_version() -> None:
     """Assert the installed package exposes a version string."""
     assert isinstance(pyclig.__version__, str)
