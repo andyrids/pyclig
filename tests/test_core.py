@@ -1046,6 +1046,44 @@ def test_arguments_reach_commands_as_typed(
     assert result.stdout.splitlines() == [value]
 
 
+_GLOBS = """
+import click
+
+import pyclig
+
+
+@pyclig.command("globs")
+@click.argument("names", nargs=-1)
+def main(names: tuple[str, ...]) -> None:
+    click.echo(" ".join(names))
+
+
+main()
+"""
+
+
+def test_several_arguments_arrive_as_typed(tmp_path: Path) -> None:
+    """Assert `nargs=-1` gets `*.txt` itself, beside files it would match.
+
+    NOTE: No shell is involved, so only the program could expand the glob:
+    click does on Windows unless told not to, as `pyclig.Command.main` does.
+    """
+    for name in ("a.txt", "b.txt"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    script = tmp_path / "globs.py"
+    script.write_text(_GLOBS, encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(script), "*.txt", "c.txt", "?.txt"],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=sample_env(),
+        check=False,
+    )
+    assert result.stderr == ""
+    assert result.stdout == "*.txt c.txt ?.txt\n"
+
+
 _RECORDS: list[dict[str, object]] = [
     {"key": "a", "size": 1, "ok": True, "note": None},
     {"key": "b\tc\n\nd", "size": 2, "ok": False, "note": "x"},
