@@ -92,7 +92,7 @@ pyclig.options.plain (*, help: str = 'Print plain, one record per line.') -> col
 pyclig.options.port (*, help: str = 'The port to use.', default: typing.Any = None, envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.secret (name: str, *, help: str | None = None, required: bool = False) -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.select_all (*, help: str = 'Select all items.') -> collections.abc.Callable[[~FC], ~FC]
-pyclig.options.timeout (*, default: float = 30.0, help: str = 'Give up after SECONDS.', envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.timeout (*, help: str = 'Give up after SECONDS.', default: float = 30.0, envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.user (*, help: str = 'The user name.', default: typing.Any = None, envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
 pyclig.pass_context (f: collections.abc.Callable[typing.Concatenate[pyclig.Context, ~P], ~R]) -> collections.abc.Callable[~P, ~R]
 pyclig.paths module

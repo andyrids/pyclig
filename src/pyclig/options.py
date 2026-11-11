@@ -343,15 +343,15 @@ def user(
 
 def timeout(
     *,
-    default: float = 30.0,
     help: str = "Give up after SECONDS.",  # noqa: A002 - click's own keyword
+    default: float = 30.0,
     envvar: str | None = None,
 ) -> Callable[[FC], FC]:
     """Add `--timeout SECONDS`, a positive float, passed as `timeout`.
 
     Args:
-        default: The default timeout, shown in help.
         help: The option's help text.
+        default: The default timeout, shown in help.
         envvar: An environment variable supplying the value.
 
     Returns:
