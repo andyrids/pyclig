@@ -1940,3 +1940,74 @@ def test_nested_global_option_points_at_its_group() -> None:
     assert section[2:] == ["  --trace - see 'tool grp --help'."]
     assert "  --trace\n" in invoke(cli, ["grp", "--help"]).stdout
     assert "--trace" not in invoke(cli, ["--help"]).stdout
+
+
+BOLD_USAGE = "\x1b[1mUSAGE:\x1b[0m\n"
+
+
+def test_help_headings_bold_on_a_styled_terminal(sample: Group) -> None:
+    """Assert `USAGE:` & every heading are bold, & nothing else is styled."""
+    result = invoke(sample, ["--help"], out_tty=True, color=True)
+    assert result.stdout.startswith(
+        f"{BOLD_USAGE}  sample [options] <command>\n"
+    )
+    for heading in ("EXAMPLES:", "COMMANDS:", "OPTIONS:", "GLOBAL OPTIONS:"):
+        assert f"\n\x1b[1m{heading}\x1b[0m\n" in result.stdout
+    assert result.stdout.count("\x1b[") == 2 * 5
+    plain = invoke(sample, ["--help"]).stdout
+    assert click.unstyle(result.stdout) == plain
+
+
+def test_help_bold_survives_no_color(sample: Group) -> None:
+    """Assert `--no-color` keeps bold: it is emphasis, not colour."""
+    result = invoke(sample, ["--no-color", "--help"], out_tty=True, color=True)
+    assert result.stdout.startswith(BOLD_USAGE)
+    assert "\x1b[3" not in result.stdout
+
+
+def test_help_plain_without_styling(sample: Group) -> None:
+    """Assert no escape code in help when the console has no colour system."""
+    for args in (["--help"], ["list", "--help"], ["help", "list"], []):
+        assert "\x1b" not in invoke(sample, args).output
+        assert "\x1b" not in invoke(sample, args, out_tty=True).output
+    assert "\x1b" not in invoke(sample, ["process"], err_tty=True).output
+
+
+def test_concise_help_on_stderr_is_bold_when_styled(sample: Group) -> None:
+    """Assert the STDERR concise help follows the STDERR console."""
+    result = invoke(sample, ["process"], err_tty=True, color=True)
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stderr.startswith(BOLD_USAGE)
+    assert "\x1b[1mOPTIONS:\x1b[0m\n" in result.stderr
+
+
+def test_usage_error_usage_block_is_never_styled(sample: Group) -> None:
+    """Assert the usage under an error is plain text, as Rich prints it."""
+    result = invoke(
+        sample, ["list", "--bogus"], out_tty=True, err_tty=True, color=True
+    )
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert "\nUSAGE:\n  sample list [options]\n" in result.stderr
+    assert "\x1b[1mUSAGE" not in result.stderr
+    assert "[1mUSAGE" not in click.unstyle(result.stderr)
+
+
+@pytest.mark.parametrize(
+    ("env", "bold"),
+    [
+        ({"TTY_COMPATIBLE": "1", "TERM": "xterm-256color"}, True),
+        ({"TTY_COMPATIBLE": "1", "TERM": "dumb"}, False),
+        ({"TERM": "xterm-256color"}, False),
+        ({"FORCE_COLOR": "1", "TERM": "xterm-256color"}, True),
+    ],
+    ids=["terminal", "dumb-terminal", "pipe", "forced-colour-pipe"],
+)
+def test_help_bold_follows_the_real_console(
+    run_sample: RunSample, env: dict[str, str], bold: bool
+) -> None:
+    """Assert a subprocess styles help only where its console is styled."""
+    result = run_sample("--help", env=env)
+    assert result.returncode == 0
+    assert result.stdout.startswith(BOLD_USAGE if bold else "USAGE:\n")
+    assert ("\x1b" in result.stdout) is bold
+    assert result.stderr == ""

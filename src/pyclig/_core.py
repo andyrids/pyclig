@@ -43,8 +43,41 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
+def _styled(console: Console) -> bool:
+    """Return whether a console's stream renders ANSI styles such as bold."""
+    return console.color_system is not None and not console.legacy_windows
+
+
+def _color(ctx: click.Context, *, err: bool = False) -> bool | None:
+    """Return click's `color=` for help written to STDOUT or STDERR.
+
+    Args:
+        ctx: The command's context.
+        err: Whether the help goes to STDERR.
+
+    Returns:
+        True where the stream's console is styled, else click's default.
+    """
+    state = _run.state_of(ctx)
+    if err and state is not None:
+        return True if _styled(state.err) else None
+    return ctx.color
+
+
 class HelpFormatter(click.HelpFormatter):
-    """Help with `USAGE:` on its own line & upper-case section headings."""
+    """Help with `USAGE:` on its own line & upper-case section headings.
+
+    Attributes:
+        bold: Write the headings in bold, which `Context.make_formatter`
+            sets where the run's console is styled.
+    """
+
+    bold = False
+
+    def _heading(self, heading: str) -> str:
+        """Return a heading line, bold when the formatter is."""
+        text = click.style(heading, bold=True) if self.bold else heading
+        return f"{'':>{self.current_indent}}{text}\n"
 
     def write_usage(
         self, prog: str, args: str = "", prefix: str | None = None
@@ -56,7 +89,7 @@ class HelpFormatter(click.HelpFormatter):
             args: The usage pieces after it.
             prefix: The heading, defaulting to `USAGE:`.
         """
-        self.write(f"{'':>{self.current_indent}}{prefix or 'USAGE:'}\n")
+        self.write(self._heading(prefix or "USAGE:"))
         with self.indentation():
             super().write_usage(prog, args, prefix="")
 
@@ -66,7 +99,7 @@ class HelpFormatter(click.HelpFormatter):
         Args:
             heading: The heading.
         """
-        super().write_heading(heading.upper())
+        self.write(self._heading(f"{heading.upper()}:"))
 
 
 class Context(click.Context):
@@ -75,7 +108,9 @@ class Context(click.Context):
     NOTE: The consoles live in `ctx.meta`, which every context of a run
     shares, so `ctx.obj` stays free for the application. A root context
     takes `-h` & `--help` as its help option names unless given others;
-    subcontexts inherit their parent's, as in click.
+    subcontexts inherit their parent's, as in click. Its `color` is True
+    where the STDOUT console is styled, unless given: help headings are
+    then bold & `click.echo` keeps styles; otherwise click decides.
     """
 
     formatter_class = HelpFormatter
@@ -99,6 +134,23 @@ class Context(click.Context):
         super().__init__(*args, **kwargs)
         if pyclig_state is not None:
             self.meta[_run.STATE_KEY] = pyclig_state
+            if parent is None and self.color is None:
+                self.color = True if _styled(pyclig_state.out) else None
+
+    def make_formatter(self, *, err: bool = False) -> click.HelpFormatter:
+        """Create the help formatter, bold where its stream is styled.
+
+        Args:
+            err: Whether the help goes to STDERR, whose console may be
+                styled when the STDOUT one is not.
+
+        Returns:
+            The formatter.
+        """
+        formatter = super().make_formatter()
+        if isinstance(formatter, HelpFormatter):
+            formatter.bold = bool(_color(self, err=err))
+        return formatter
 
     _deprecation: bool | str = False
     """The `deprecated` of a command that `Command.invoke` is announcing."""
@@ -771,7 +823,8 @@ class Command(click.Command):
             The arguments left over for a subcommand.
         """
         if not args and self.no_args_is_help and not ctx.resilient_parsing:
-            click.echo(self.get_concise_help(ctx), err=True)
+            concise = self.get_concise_help(ctx, err=True)
+            click.echo(concise, err=True, color=_color(ctx, err=True))
             ctx.exit(ExitCode.USAGE)
         given = list(args)
         try:
@@ -888,16 +941,23 @@ class Command(click.Command):
                     names = ", ".join("/".join(p.opts) for p in params)
                     formatter.write_text(f"{names} - see '{path} --help'.")
 
-    def get_concise_help(self, ctx: click.Context) -> str:
+    def get_concise_help(
+        self, ctx: click.Context, *, err: bool = False
+    ) -> str:
         """Return the concise help, printed when a command needs arguments.
 
         Args:
             ctx: The command's context.
+            err: Whether it goes to STDERR, so its headings follow that
+                console's styling.
 
         Returns:
             The help without its options, ending with a `--help` hint.
         """
-        formatter = ctx.make_formatter()
+        if isinstance(ctx, Context):
+            formatter = ctx.make_formatter(err=err)
+        else:
+            formatter = ctx.make_formatter()
         self.format_concise_help(ctx, formatter)
         hint = _run.help_hint(ctx)
         if hint:
@@ -1141,7 +1201,7 @@ class Group(Command, click.Group):
         """
         result = super().invoke(ctx)
         if ctx.invoked_subcommand is None:
-            click.echo(self.get_concise_help(ctx))
+            click.echo(self.get_concise_help(ctx), color=ctx.color)
         return result
 
     def format_options(

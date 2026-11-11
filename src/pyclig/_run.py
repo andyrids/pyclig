@@ -542,11 +542,13 @@ def _execute(func: Callable[[], object], state: State, *, prog: str) -> int:
 
 def _report_usage_error(err: Console, error: click.UsageError) -> None:
     """Print a usage error - message, the failing command's usage & a hint."""
-    notice(err, level="error", message=error.format_message())
+    message = click.unstyle(error.format_message())
+    notice(err, level="error", message=message)
     ctx = error.ctx
     if ctx is None:
         return
-    _plain(err, f"\n{ctx.get_usage()}\n")
+    # Printed as Rich `Text`, which would show click's bold codes literally
+    _plain(err, f"\n{click.unstyle(ctx.get_usage())}\n")
     pointer = help_hint(ctx)
     if pointer:
         hint(err, message=pointer)
