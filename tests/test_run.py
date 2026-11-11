@@ -3,12 +3,16 @@
 import io
 import logging
 import os
+import platform
 import subprocess
 import sys
 import types
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
+from urllib import parse
 
+import click
 import pytest
 
 import pyclig
@@ -223,9 +227,13 @@ def test_bug_hint_names_issues_url(
     """Assert a crash hints at the distribution's `Issues` project URL."""
     monkeypatch.setattr(_run, "_distribution", lambda package: "pyclig")
     result = invoke(sample, ["fail", "--kind", "crash"])
-    assert result.stderr.rstrip().endswith(
-        "please report it at https://github.com/andyrids/pyclig/issues, "
-        "with the output above."
+    hint, url = result.stderr.splitlines()[-2:]
+    assert hint == (
+        f"This is a bug in sample {pyclig.__version__} - please report it, "
+        "with the output above:"
+    )
+    assert url.startswith(
+        "https://github.com/andyrids/pyclig/issues/new?title=sample%20"
     )
 
 
@@ -742,5 +750,125 @@ def test_root_help_of_an_installed_app_skips_importlib_metadata(
     assert (
         "LEARN MORE:\n  Issues  https://x.test/fast/issues\n" in result.stdout
     )
-    assert "click" in result.stderr
-    assert "importlib.metadata" not in result.stderr
+    imported = {
+        line.rpartition("|")[2].strip() for line in result.stderr.splitlines()
+    }
+    assert "click" in imported
+    assert not imported & {"importlib.metadata", "urllib.parse", "platform"}
+
+
+@pyclig.command("leaky")
+@click.option("--password")
+@click.argument("target")
+def leaky(password: str, target: str) -> None:
+    """Crash with a message full of things that must stay local."""
+    raise RuntimeError(f"token=hunter2 for {password} in {target}")
+
+
+def _report(tracker: str, **kwargs: Any) -> tuple[list[str], str]:
+    """Return the STDERR lines of a `leaky` crash & the report URL."""
+    with patch("pyclig._run._project_url", return_value=tracker):
+        result = invoke(
+            leaky, ["--password", "s3cr3t", r"C:\Users\me\vault.txt"], **kwargs
+        )
+    assert result.exit_code == pyclig.ExitCode.INTERNAL
+    lines = result.stderr.splitlines()
+    return lines, lines[-1]
+
+
+@pytest.mark.parametrize(
+    ("tracker", "new", "title", "body"),
+    [
+        (
+            "https://github.com/acme/leaky/issues",
+            "https://github.com/acme/leaky/issues/new?",
+            "title",
+            "body",
+        ),
+        (
+            "https://gitlab.com/acme/tools/leaky/-/issues/",
+            "https://gitlab.com/acme/tools/leaky/-/issues/new?",
+            "issue[title]",
+            "issue[description]",
+        ),
+    ],
+    ids=["github", "gitlab"],
+)
+def test_bug_report_url_is_pre_filled(
+    tracker: str, new: str, title: str, body: str
+) -> None:
+    """Assert the URL opens a new issue naming versions, platform & type."""
+    lines, url = _report(tracker)
+    assert lines[-2] == (
+        "This is a bug in leaky 0.0.0+unknown - please report it, with the "
+        "output above:"
+    )
+    assert url.startswith(new)
+    assert " " not in url
+    query = parse.parse_qs(parse.urlsplit(url).query, strict_parsing=True)
+    assert set(query) == {title, body}
+    assert query[title] == ["leaky 0.0.0+unknown: unexpected RuntimeError"]
+    python = platform.python_version()
+    assert query[body][0].splitlines() == [
+        "Program: leaky 0.0.0+unknown",
+        f"pyclig: {pyclig.__version__}",
+        f"Python: {python} ({platform.python_implementation()})",
+        f"Platform: {platform.system()} {platform.release()}",
+        "Error: unexpected RuntimeError",
+        "",
+        "(paste the output above)",
+    ]
+
+
+@pytest.mark.parametrize(
+    "tracker",
+    [
+        "https://github.com/acme/leaky/issues",
+        "https://gitlab.com/acme/leaky/-/issues",
+        "https://bugs.example.org/leaky",
+    ],
+)
+def test_bug_report_url_carries_nothing_private(tracker: str) -> None:
+    """Assert no message, argument, path or variable reaches the URL."""
+    lines, url = _report(tracker, env={"LEAKY_TOKEN": "t0ps3cret"})
+    assert any("token=hunter2" in line for line in lines[:-1])
+    decoded = parse.unquote(url)
+    private = (
+        "hunter2",
+        "s3cr3t",
+        "password",
+        "vault",
+        "Users",
+        "t0ps3cret",
+        "LEAKY_TOKEN",
+        str(Path.cwd()),
+        Path.home().name,
+        Path(sys.executable).name,
+    )
+    for text in private:
+        assert text not in decoded
+
+
+@pytest.mark.parametrize(
+    "tracker",
+    [
+        "https://bugs.example.org/leaky",
+        "https://github.com/acme/leaky/discussions",
+        "https://github.com/acme/leaky/issues?q=is%3Aopen",
+    ],
+    ids=["other-host", "not-the-issues-page", "with-a-query"],
+)
+def test_bug_report_url_left_alone_elsewhere(tracker: str) -> None:
+    """Assert a tracker that takes no pre-filled issue is linked as it is."""
+    assert _report(tracker)[1] == tracker
+
+
+def test_bug_report_url_is_one_line_on_a_narrow_terminal() -> None:
+    """Assert the URL is never wrapped, so it stays a link at 40 columns."""
+    lines, url = _report(
+        "https://github.com/acme/leaky/issues", width=40, err_tty=True
+    )
+    assert url.startswith("https://github.com/acme/leaky/issues/new?title=")
+    assert url.endswith("output%20above%29")
+    assert len(url) > 200
+    assert max(len(line) for line in lines[:-1]) <= 40

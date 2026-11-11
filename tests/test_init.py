@@ -17,7 +17,7 @@ heavy = (
     "rich.traceback", "rich.logging", "pygments", "importlib.metadata",
     "rich.progress", "rich.table", "rich.box",
     "pyclig._conformance", "pyclig.testing", "click.testing", "tomllib",
-    "socket",
+    "socket", "urllib.parse", "platform",
 )
 print(json.dumps({
     "heavy": sorted(m for m in new if m.startswith(heavy)),

@@ -474,23 +474,67 @@ def _project_url(package: str) -> str | None:
     return None
 
 
-def bug_hint(prog: str, package: str) -> str | None:
-    """Return the line printed after an unexpected error.
+_REPORT_FIELDS = {
+    "github.com": ("/issues", "title", "body"),
+    "gitlab.com": ("/issues", "issue[title]", "issue[description]"),
+}
+"""Per host: the tracker path's ending & the new-issue query fields."""
+
+
+def bug_hint(
+    prog: str, package: str, error: BaseException
+) -> tuple[str, str] | None:
+    """Return the line & the URL printed after an unexpected error.
+
+    NOTE: On github.com & gitlab.com the URL opens a new issue with the
+    title & the environment filled in. It carries the versions, the
+    platform & the exception's type only - never its message, the
+    arguments, a path or the environment, which may hold secrets & would
+    be sent to the tracker's host on a click. Any other tracker is linked
+    as it is.
 
     Args:
         prog: The program name, e.g. `dkais`.
         package: The application package.
+        error: The unexpected exception.
 
     Returns:
-        The hint, or None when the distribution names no bug tracker.
+        The hint & the URL for the line after it, or None when the
+        distribution names no bug tracker.
     """
     url = _project_url(package)
     if url is None:
         return None
-    return (
-        f"This is a bug in {prog} {version(package)} - please report it at "
-        f"{url}, with the output above."
+    import platform
+    from urllib import parse
+
+    release = f"{prog} {version(package)}"
+    kind = type(error).__name__
+    tracker = parse.urlsplit(url)
+    ending, title, body = _REPORT_FIELDS.get(
+        (tracker.hostname or "").lower(), ("", "", "")
     )
+    path = tracker.path.rstrip("/")
+    if ending and path.endswith(ending) and not tracker.query:
+        python = platform.python_version()
+        lines = (
+            f"Program: {release}",
+            f"pyclig: {version('pyclig')}",
+            f"Python: {python} ({platform.python_implementation()})",
+            f"Platform: {platform.system()} {platform.release()}",
+            f"Error: unexpected {kind}",
+            "",
+            "(paste the output above)",
+        )
+        query = parse.urlencode(
+            {title: f"{release}: unexpected {kind}", body: "\n".join(lines)},
+            quote_via=parse.quote,
+        )
+        url = parse.urlunsplit(
+            tracker._replace(path=f"{path}/new", query=query)
+        )
+    ask = "please report it, with the output above:"
+    return f"This is a bug in {release} - {ask}", url
 
 
 def execute(func: Callable[[], object], state: State, *, prog: str) -> int:
@@ -628,9 +672,10 @@ def _failed(error: Exception, state: State, prog: str) -> int:
         level="error",
         message=f"{message}: {detail}" if detail else message,
     )
-    report = bug_hint(prog, state.package)
+    report = bug_hint(prog, state.package, error)
     if report:
-        hint(state.err, message=report)
+        hint(state.err, message=report[0])
+        _plain(state.err, report[1])  # never wrapped, so it stays a link
     written = _logging.log_failure(state.package, error)
     if written:
         hint(state.err, message=f"debug log: {written}")
