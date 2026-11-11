@@ -8,7 +8,7 @@ import pyclig
 
 _PROBE = """
 import json, logging, signal, sys, warnings
-import pathlib  # the baseline: on Python 3.11 pathlib itself loads urllib.parse
+import pathlib  # the baseline: Python 3.11's pathlib loads urllib.parse
 import rich
 shown = warnings.showwarning
 before = set(sys.modules)
