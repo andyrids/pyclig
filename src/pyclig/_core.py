@@ -601,6 +601,33 @@ def _announced(
     return result
 
 
+def _by_declarer(
+    ctx: click.Context, params: Sequence[click.Parameter]
+) -> dict[str, list[click.Parameter]]:
+    """Group inherited global options by the command whose help lists them.
+
+    Args:
+        ctx: The context of the command showing its help.
+        params: The global options the command does not declare itself.
+
+    Returns:
+        The options by command path, the root first: an option belongs to
+        the nearest ancestor declaring its name, a run flag to the root.
+    """
+    root = ctx.find_root().command_path
+    declarer: dict[str | None, str] = {}
+    parent = ctx.parent
+    while parent is not None:
+        for param in parent.command.params:
+            if isinstance(param, GlobalOption):
+                declarer.setdefault(param.name, parent.command_path)
+        parent = parent.parent
+    grouped: dict[str, list[click.Parameter]] = {root: []}
+    for param in params:
+        grouped.setdefault(declarer.get(param.name, root), []).append(param)
+    return {path: found for path, found in grouped.items() if found}
+
+
 def _show_version(ctx: click.Context) -> str:
     """Return the `-v/--version` line, e.g. `dkais 0.1.0`."""
     return f"{ctx.find_root().info_name} {_run.version(_package(ctx))}"
@@ -830,7 +857,8 @@ class Command(click.Command):
 
         NOTE: The root (or a standalone command) lists its global options in
         full. A subcommand lists those it declares itself in full & the rest
-        on one line, pointing at the root's help.
+        in a sentence pointing at the help that lists them: the root's, or
+        that of the nested group declaring them.
 
         Args:
             ctx: The command's context.
@@ -856,10 +884,9 @@ class Command(click.Command):
             with formatter.section("Global options"):
                 if full:
                     formatter.write_dl(full)
-                if brief:
-                    names = ", ".join("/".join(p.opts) for p in brief)
-                    root = ctx.find_root().command_path
-                    formatter.write_text(f"{names} - see '{root} --help'.")
+                for path, params in _by_declarer(ctx, brief).items():
+                    names = ", ".join("/".join(p.opts) for p in params)
+                    formatter.write_text(f"{names} - see '{path} --help'.")
 
     def get_concise_help(self, ctx: click.Context) -> str:
         """Return the concise help, printed when a command needs arguments.

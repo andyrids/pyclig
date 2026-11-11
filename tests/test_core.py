@@ -1913,3 +1913,30 @@ def test_single_line_examples_are_unchanged() -> None:
     assert (
         "EXAMPLES:\n  ex single --count\n  ex single --json\n\n" in help_text
     )
+
+
+def test_nested_global_option_points_at_its_group() -> None:
+    """Assert a subcommand's pointer names the group declaring each flag."""
+
+    @pyclig.group("tool")
+    def cli() -> None:
+        """Group commands."""
+
+    @cli.group()
+    @click.option("--trace", cls=pyclig.GlobalOption, callback=print)
+    def grp() -> None:
+        """Group traced commands."""
+
+    @grp.command()
+    def leaf() -> None:
+        """Run traced."""
+
+    help_text = invoke(cli, ["grp", "leaf", "--help"]).stdout
+    section = _section(help_text, "GLOBAL OPTIONS:")
+    assert " ".join(part.strip() for part in section[:2]) == (
+        "-v/--version, -d/--debug, -q/--quiet, --no-color, --no-input - "
+        "see 'tool --help'."
+    )
+    assert section[2:] == ["  --trace - see 'tool grp --help'."]
+    assert "  --trace\n" in invoke(cli, ["grp", "--help"]).stdout
+    assert "--trace" not in invoke(cli, ["--help"]).stdout
