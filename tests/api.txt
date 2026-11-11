@@ -20,8 +20,8 @@
 #   changed - breaking unless it only adds an optional parameter or reorders
 #             keyword-only ones
 #   added   - add the line deliberately
-pyclig.Command class (self, name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig._config.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> None
-pyclig.Command.context_class = pyclig._core.Context
+pyclig.Command class (self, name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> None
+pyclig.Command.context_class = pyclig.Context
 pyclig.Command.format_concise_help (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
 pyclig.Command.format_concise_options (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
 pyclig.Command.format_examples (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
@@ -63,17 +63,17 @@ pyclig.GlobalOption class (self, param_decls: collections.abc.Sequence[str], *, 
 pyclig.GlobalOption.without (self, names: collections.abc.Collection[str]) -> 'GlobalOption | None'
 pyclig.Group class (self, name: str | None = None, commands: typing.Any = None, *, invoke_without_command: bool = True, subcommand_metavar: str | None = '<command>', **kwargs: typing.Any) -> None
 pyclig.Group.add_command (self, cmd: click.core.Command, name: str | None = None) -> None
-pyclig.Group.command_class = pyclig._core.Command
+pyclig.Group.command_class = pyclig.Command
 pyclig.Group.format_concise_help (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
 pyclig.Group.format_options (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
 pyclig.Group.group_class = type
 pyclig.Group.invoke (self, ctx: click.core.Context) -> typing.Any
 pyclig.Group.list_commands (self, ctx: click.core.Context) -> list[str]
 pyclig.Group.resolve_command (self, ctx: click.core.Context, args: list[str]) -> tuple[str | None, click.core.Command | None, list[str]]
-pyclig.command (name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig._config.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> collections.abc.Callable[[collections.abc.Callable[..., typing.Any]], pyclig._core.Command]
+pyclig.command (name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> collections.abc.Callable[[collections.abc.Callable[..., typing.Any]], pyclig.Command]
 pyclig.confirm (ctx: click.core.Context, *, message: str, force: bool) -> None
 pyclig.confirm_name (ctx: click.core.Context, *, message: str, name: str, confirmed: str | None) -> None
-pyclig.group (name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig._config.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> collections.abc.Callable[[collections.abc.Callable[..., typing.Any]], pyclig._core.Group]
+pyclig.group (name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> collections.abc.Callable[[collections.abc.Callable[..., typing.Any]], pyclig.Group]
 pyclig.hanging (console: rich.console.Console, *, head: rich.text.Text | str, message: str) -> None
 pyclig.hint (console: rich.console.Console, *, message: str) -> None
 pyclig.info (console: rich.console.Console, *, message: str) -> None
@@ -91,7 +91,7 @@ pyclig.options.secret (name: str, *, help: str | None = None, required: bool = F
 pyclig.options.select_all (*, help: str = 'Select all items.') -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.timeout (*, default: float = 30.0, help: str = 'Give up after SECONDS.', envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.user (*, help: str = 'The user name.', default: typing.Any = None, envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
-pyclig.pass_context (f: collections.abc.Callable[typing.Concatenate[pyclig._core.Context, ~P], ~R]) -> collections.abc.Callable[~P, ~R]
+pyclig.pass_context (f: collections.abc.Callable[typing.Concatenate[pyclig.Context, ~P], ~R]) -> collections.abc.Callable[~P, ~R]
 pyclig.paths module
 pyclig.paths.config_dir (name: str) -> pathlib.Path
 pyclig.paths.data_dir (name: str) -> pathlib.Path
@@ -103,8 +103,8 @@ pyclig.status (console: rich.console.Console, *, message: str) -> collections.ab
 pyclig.summary (console: rich.console.Console, *, message: str, failed: bool = False) -> None
 pyclig.testing.Finding class (self, rule: str, command: str, message: str) -> None
 pyclig.testing.assert_conforms (cli: click.core.Command, *, ignore: collections.abc.Mapping[str, str] | None = None, samples: collections.abc.Iterable[collections.abc.Sequence[str]] = ()) -> None
-pyclig.testing.check (cli: click.core.Command, *, ignore: collections.abc.Mapping[str, str] | None = None, samples: collections.abc.Iterable[collections.abc.Sequence[str]] = ()) -> list[pyclig._conformance.Finding]
-pyclig.testing.invoke (cli: pyclig._core.Command, args: collections.abc.Sequence[str] = (), *, in_tty: bool = False, out_tty: bool = False, err_tty: bool = False, color: bool = False, interactive: bool = False, width: int = 80, env: collections.abc.Mapping[str, str | None] | None = None, input: str | bytes | typing.IO[typing.Any] | None = None, config_files: bool = False) -> click.testing.Result
+pyclig.testing.check (cli: click.core.Command, *, ignore: collections.abc.Mapping[str, str] | None = None, samples: collections.abc.Iterable[collections.abc.Sequence[str]] = ()) -> list[pyclig.testing.Finding]
+pyclig.testing.invoke (cli: pyclig.Command, args: collections.abc.Sequence[str] = (), *, in_tty: bool = False, out_tty: bool = False, err_tty: bool = False, color: bool = False, interactive: bool = False, width: int = 80, env: collections.abc.Mapping[str, str | None] | None = None, input: str | bytes | typing.IO[typing.Any] | None = None, config_files: bool = False) -> click.testing.Result
 rule:ARG-1
 rule:ARG-16
 rule:ARG-2

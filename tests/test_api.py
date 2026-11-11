@@ -21,6 +21,13 @@ CLASSES = (
     ("pyclig.testing.Finding", testing.Finding),
 )
 EMPTY = inspect.Parameter.empty
+EXPORTED = {
+    getattr(module, name): f"{module.__name__}.{name}"
+    for module in (pyclig, testing)
+    for name in module.__all__
+    if isinstance(getattr(module, name), type)
+}
+"""The public path of each exported class: `_` modules are not API."""
 
 
 def ann(hint: object) -> str:
@@ -56,7 +63,8 @@ def ann(hint: object) -> str:
     if isinstance(hint, type) or getattr(hint, "__module__", "") == "typing":
         module = hint.__module__.replace("pathlib._local", "pathlib")
         name = hint.__qualname__
-        return name if module == "builtins" else f"{module}.{name}"
+        path = name if module == "builtins" else f"{module}.{name}"
+        return EXPORTED.get(hint, path)
     raise TypeError(f"no stable rendering for the annotation {hint!r}")
 
 
