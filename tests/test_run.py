@@ -701,7 +701,7 @@ def test_project_url_read_from_installed_metadata(
 def test_project_url_falls_back_to_importlib(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Assert a package without a `dist-info` beside it is looked up as before."""
+    """Assert a package with no `dist-info` beside it is found as before."""
     module = types.ModuleType("fast_app")
     module.__file__ = str(tmp_path / "fast_app" / "__init__.py")
     monkeypatch.setitem(sys.modules, "fast_app", module)
@@ -717,7 +717,7 @@ def test_project_url_falls_back_to_importlib(
 def test_root_help_of_an_installed_app_skips_importlib_metadata(
     tmp_path: Path,
 ) -> None:
-    """Assert `--help` prints `Issues` without importing `importlib.metadata`."""
+    """Assert `--help` prints `Issues` & never loads `importlib.metadata`."""
     _install(
         tmp_path,
         f"{_HEADERS}Project-URL: Issues, https://x.test/fast/issues\n",
