@@ -2011,3 +2011,21 @@ def test_help_bold_follows_the_real_console(
     assert result.stdout.startswith(BOLD_USAGE if bold else "USAGE:\n")
     assert ("\x1b" in result.stdout) is bold
     assert result.stderr == ""
+
+
+def test_lines_variable_sets_the_console_height(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert `LINES` alone sets the height of the run's consoles."""
+    monkeypatch.setenv("LINES", "7")
+    monkeypatch.delenv("COLUMNS", raising=False)
+    out, err = pyclig._run.make_consoles()
+    assert (out.size.height, err.size.height) == (7, 7)
+
+    @pyclig.command("tall")
+    @pyclig.pass_context
+    def tall(ctx: pyclig.Context) -> None:
+        """Print the terminal height."""
+        click.echo(ctx.err.size.height)
+
+    assert invoke(tall, [], env={"LINES": "7"}).stdout == "7\n"
