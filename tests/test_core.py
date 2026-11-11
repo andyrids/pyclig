@@ -1554,3 +1554,62 @@ def test_confirm_name_interrupted_on_terminal() -> None:
     )
     assert result.exit_code == pyclig.ExitCode.INTERRUPT
     assert result.stderr.endswith("warning: interrupted\n")
+
+
+@pyclig.group("files")
+def files_cli() -> None:
+    """Read & write files."""
+
+
+@files_cli.command()
+@click.argument("source", type=click.File("r"), default="-")
+def count(source: Any) -> None:
+    """Count the lines of SOURCE."""
+    click.echo(len(source.readlines()))
+
+
+@files_cli.command()
+@click.option("--from", "sources", type=click.File("r"), multiple=True)
+@click.option("--to", "target", type=click.File("w"), default="-")
+def join(sources: tuple[Any, ...], target: Any) -> None:
+    """Join the files into one."""
+    target.write("".join(source.read() for source in sources))
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["count", "-"], ["count"], ["join", "--from", "-"]],
+    ids=["dash", "default", "multiple"],
+)
+def test_file_refuses_a_terminal_stdin(args: list[str]) -> None:
+    """Assert `-` for a file to read is a usage error on a terminal."""
+    result = invoke(files_cli, args, in_tty=True, input="never read\n")
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert (
+        "STDIN is a terminal - pipe the input in or name a file"
+        in result.stderr
+    )
+    assert f"Try 'files {args[0]} --help'" in result.stderr
+
+
+def test_file_reads_a_piped_stdin_or_a_named_file(tmp_path: Path) -> None:
+    """Assert a pipe, a named file & a file to write are left alone."""
+    assert invoke(files_cli, ["count"], input="a\nb\n").stdout == "2\n"
+    named = tmp_path / "three.txt"
+    named.write_text("a\nb\nc\n", encoding="utf-8")
+    result = invoke(files_cli, ["count", str(named)], in_tty=True)
+    assert result.stdout == "3\n"
+    result = invoke(files_cli, ["join", "--from", str(named)], in_tty=True)
+    assert result.stdout == "a\nb\nc\n"
+
+
+def test_file_help_and_completion_ignore_a_terminal_stdin() -> None:
+    """Assert `--help` & resilient parsing never fail on the default `-`."""
+    result = invoke(files_cli, ["count", "--help"], in_tty=True)
+    assert result.exit_code == 0
+    with patch("pyclig._run.is_tty", return_value=True):
+        with count.make_context("count", [], resilient_parsing=True):
+            pass
+        with pytest.raises(click.BadParameter, match="STDIN is a terminal"):
+            count.make_context("count", [])

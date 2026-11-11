@@ -493,6 +493,51 @@ def _prompt(
         return prompt(ctx)
 
 
+def _names_stdin(value: object) -> bool:
+    """Return whether a raw value, or any value nested in it, is `-`."""
+    if isinstance(value, (tuple, list)):
+        return any(_names_stdin(item) for item in value)
+    return value == "-"
+
+
+def _piped(
+    param: click.Parameter,
+    cast: Callable[[click.Context, Any], Any],
+    ctx: click.Context,
+    value: Any,
+) -> Any:
+    """Convert the value of a file to read, refusing `-` on a terminal.
+
+    NOTE: click would open the terminal & the command would sit waiting
+    for typed input with nothing on screen. Checked before the file is
+    opened, whether `-` was given or is the default; never while
+    completing.
+
+    Args:
+        param: The parameter whose type is a read-mode `click.File`.
+        cast: click's `type_cast_value`, bound to `param`.
+        ctx: The command's context.
+        value: The raw value, or a tuple of them.
+
+    Returns:
+        The opened file or files.
+
+    Raises:
+        click.BadParameter: When `-` is asked for & STDIN is a terminal.
+    """
+    if (
+        not ctx.resilient_parsing
+        and _names_stdin(value)
+        and _run.stdin_is_tty(ctx)
+    ):
+        raise click.BadParameter(
+            "STDIN is a terminal - pipe the input in or name a file",
+            ctx=ctx,
+            param=param,
+        )
+    return cast(ctx, value)
+
+
 def _show_version(ctx: click.Context) -> str:
     """Return the `-v/--version` line, e.g. `dkais 0.1.0`."""
     return f"{ctx.find_root().info_name} {_run.version(_package(ctx))}"
@@ -535,7 +580,8 @@ class Command(click.Command):
     help & completion all see them; a command's own option with the same
     spelling wins. An option with `prompt=` prompts on STDERR; when the run
     cannot prompt it takes its default, or fails naming itself without
-    one. Usage errors raised while
+    one. A `click.File` to read refuses `-` while STDIN is a terminal,
+    instead of waiting for typed input. Usage errors raised while
     parsing are bound to this command, so they show its usage. `main` runs
     the command with fresh consoles & logging; `errors` is read from the
     command `main` is called on.
@@ -577,6 +623,11 @@ class Command(click.Command):
         if config is not None:
             self.params[:0] = _config.options(config)
         for param in self.params:
+            if isinstance(param.type, click.File) and "r" in param.type.mode:
+                piped = functools.partial(
+                    _piped, param, param.type_cast_value
+                )
+                setattr(param, "type_cast_value", piped)
             if not isinstance(param, click.Option):
                 continue
             if param.prompt is not None:

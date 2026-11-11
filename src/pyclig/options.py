@@ -169,9 +169,7 @@ def _read_secret(
     if value is None:
         return None
     if value == "-":
-        state = _run.state_of(ctx)
-        in_tty = state.in_tty if state is not None else _run.is_tty(sys.stdin)
-        if in_tty:
+        if _run.stdin_is_tty(ctx):
             raise click.BadParameter(
                 "STDIN is a terminal - pipe the secret in",
                 ctx=ctx,

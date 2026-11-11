@@ -192,6 +192,19 @@ def _truthy(value: str | None) -> bool:
     return value is not None and value.strip().lower() not in _FALSE
 
 
+def stdin_is_tty(ctx: click.Context) -> bool:
+    """Return whether the run's STDIN is a terminal, so `-` cannot be read.
+
+    Args:
+        ctx: Any context of the run.
+
+    Returns:
+        The run's own answer, or the real STDIN's outside a run.
+    """
+    state = state_of(ctx)
+    return state.in_tty if state is not None else is_tty(sys.stdin)
+
+
 def state_of(ctx: click.Context) -> State | None:
     """Return the run's state, if the run was started by `Command.main`.
 
