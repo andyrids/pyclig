@@ -1,0 +1,126 @@
+# The public API of pyclig, frozen at 1.0 - checked by tests/test_api.py.
+#
+# Format: one `key value` line per entry, sorted. The value is
+#   (...) -> ...     a callable's signature, as tests/test_api.py renders it
+#   class (...)      a class & its own `__init__`; `enum` for an enumeration
+#   property (...)   a property, `settable` when it has a setter
+#   = ...            a type alias, or a class attribute's value
+#   module           a submodule
+#   <int>            an `ExitCode` member's value
+# and a `rule:<ID>` line, with no value, is a rule ID the conformance kit emits.
+#
+# Covered: the `__all__` names of pyclig, pyclig.options, pyclig.paths &
+# pyclig.testing, the `ExitCode` members, the public members that Context,
+# Command, Group, GlobalOption, Config & testing.Finding define themselves, and
+# the kit's rule IDs.
+#
+# Freeze: this file is edited by hand, never regenerated, so that every change
+# to the API is a deliberate diff. The test names each difference:
+#   removed - breaking, needs 2.0
+#   changed - breaking unless it only adds an optional parameter or reorders
+#             keyword-only ones
+#   added   - add the line deliberately
+pyclig.Command class (self, name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig._config.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> None
+pyclig.Command.context_class = pyclig._core.Context
+pyclig.Command.format_concise_help (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Command.format_concise_options (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Command.format_examples (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Command.format_help (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Command.format_learn_more (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Command.format_options (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Command.get_concise_help (self, ctx: click.core.Context, *, err: bool = False) -> str
+pyclig.Command.get_params (self, ctx: click.core.Context) -> list[click.core.Parameter]
+pyclig.Command.invoke (self, ctx: click.core.Context) -> typing.Any
+pyclig.Command.main (self, args: collections.abc.Sequence[str] | None = None, prog_name: str | None = None, complete_var: str | None = None, standalone_mode: bool = True, windows_expand_args: bool = False, **extra: typing.Any) -> typing.NoReturn
+pyclig.Command.parse_args (self, ctx: click.core.Context, args: list[str]) -> list[str]
+pyclig.Config class (self, name: str | None = None, project: str | None = None, table: str | None = None, profiles: bool = False, dotenv: bool = False) -> None
+pyclig.Config.dotenv = False
+pyclig.Config.name = None
+pyclig.Config.profiles = False
+pyclig.Config.project = None
+pyclig.Config.table = None
+pyclig.Context class (self, *args: typing.Any, pyclig_state: pyclig._run.State | None = None, **kwargs: typing.Any) -> None
+pyclig.Context.can_prompt property (self) -> bool
+pyclig.Context.cleanup (self, *, timeout: float | None = 10.0) -> collections.abc.Iterator[None]
+pyclig.Context.emit (self, records: collections.abc.Iterable[collections.abc.Mapping[str, object]], *, table: collections.abc.Callable[[], 'Table'] | None = None, caption: str | None = None) -> None
+pyclig.Context.err property (self) -> rich.console.Console
+pyclig.Context.format property (self) -> Literal['human', 'plain', 'json']
+pyclig.Context.formatter_class = pyclig._core.HelpFormatter
+pyclig.Context.invoke (self, *args: typing.Any, **kwargs: typing.Any) -> typing.Any
+pyclig.Context.logs_on_failure (self, *, level: int = 20) -> collections.abc.Iterator[None]
+pyclig.Context.make_formatter (self, *, err: bool = False) -> click.formatting.HelpFormatter
+pyclig.Context.out property (self) -> rich.console.Console
+pyclig.Context.pager (self) -> collections.abc.Iterator[None]
+pyclig.Context.quiet property (self) -> bool
+pyclig.ExitCode enum
+pyclig.ExitCode.FAILURE 1
+pyclig.ExitCode.INTERNAL 70
+pyclig.ExitCode.INTERRUPT 130
+pyclig.ExitCode.OK 0
+pyclig.ExitCode.TERMINATE 143
+pyclig.ExitCode.USAGE 2
+pyclig.GlobalOption class (self, param_decls: collections.abc.Sequence[str], *, callback: collections.abc.Callable[[click.core.Context, click.core.Parameter, typing.Any], typing.Any], **kwargs: typing.Any) -> None
+pyclig.GlobalOption.without (self, names: collections.abc.Collection[str]) -> 'GlobalOption | None'
+pyclig.Group class (self, name: str | None = None, commands: typing.Any = None, *, invoke_without_command: bool = True, subcommand_metavar: str | None = '<command>', **kwargs: typing.Any) -> None
+pyclig.Group.add_command (self, cmd: click.core.Command, name: str | None = None) -> None
+pyclig.Group.command_class = pyclig._core.Command
+pyclig.Group.format_concise_help (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Group.format_options (self, ctx: click.core.Context, formatter: click.formatting.HelpFormatter) -> None
+pyclig.Group.group_class = type
+pyclig.Group.invoke (self, ctx: click.core.Context) -> typing.Any
+pyclig.Group.list_commands (self, ctx: click.core.Context) -> list[str]
+pyclig.Group.resolve_command (self, ctx: click.core.Context, args: list[str]) -> tuple[str | None, click.core.Command | None, list[str]]
+pyclig.command (name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig._config.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> collections.abc.Callable[[collections.abc.Callable[..., typing.Any]], pyclig._core.Command]
+pyclig.confirm (ctx: click.core.Context, *, message: str, force: bool) -> None
+pyclig.confirm_name (ctx: click.core.Context, *, message: str, name: str, confirmed: str | None) -> None
+pyclig.group (name: str | None = None, *, examples: collections.abc.Iterable[str] = (), errors: tuple[type[Exception], ...] = (), config: pyclig._config.Config | None = None, docs: str | None = None, **kwargs: typing.Any) -> collections.abc.Callable[[collections.abc.Callable[..., typing.Any]], pyclig._core.Group]
+pyclig.hanging (console: rich.console.Console, *, head: rich.text.Text | str, message: str) -> None
+pyclig.hint (console: rich.console.Console, *, message: str) -> None
+pyclig.info (console: rich.console.Console, *, message: str) -> None
+pyclig.notice (console: rich.console.Console, *, level: Literal['error', 'warning'], message: str, items: collections.abc.Iterable[str] = ()) -> None
+pyclig.options module
+pyclig.options.NoneOr class (self, inner: click.types.ParamType[typing.Any, typing.Any] | type = STRING, *, word: str = 'none') -> None
+pyclig.options.confirm (*, help: str = 'Type the name to confirm a severe action.') -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.dry_run (*, help: str = 'Show what would be done, without doing it.') -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.force (*, help: str = 'Proceed without confirmation.') -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.json_output (*, help: str = 'Output as JSON.') -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.output (*, help: str = 'Write to FILE instead of STDOUT; `-` is STDOUT.', default: typing.Any = None, envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.plain (*, help: str = 'Print plain, one record per line.') -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.port (*, help: str = 'The port to use.', default: typing.Any = None, envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.secret (name: str, *, help: str | None = None, required: bool = False) -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.select_all (*, help: str = 'Select all items.') -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.timeout (*, default: float = 30.0, help: str = 'Give up after SECONDS.', envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.user (*, help: str = 'The user name.', default: typing.Any = None, envvar: str | None = None) -> collections.abc.Callable[[~FC], ~FC]
+pyclig.pass_context (f: collections.abc.Callable[typing.Concatenate[pyclig._core.Context, ~P], ~R]) -> collections.abc.Callable[~P, ~R]
+pyclig.paths module
+pyclig.paths.config_dir (name: str) -> pathlib.Path
+pyclig.paths.data_dir (name: str) -> pathlib.Path
+pyclig.paths.system_config_dir (name: str) -> pathlib.Path
+pyclig.progress (console: rich.console.Console, *, columns: collections.abc.Sequence['str | ProgressColumn'] = (), **kwargs: typing.Any) -> 'Progress'
+pyclig.row (console: rich.console.Console, *, mark: rich.text.Text | str, label: str, detail: rich.text.Text | str = '', width: int = 0, essential: bool = False) -> None
+pyclig.run (func: collections.abc.Callable[[], int | None], *, errors: tuple[type[Exception], ...] = ()) -> typing.NoReturn
+pyclig.status (console: rich.console.Console, *, message: str) -> collections.abc.Iterator[None]
+pyclig.summary (console: rich.console.Console, *, message: str, failed: bool = False) -> None
+pyclig.testing.Finding class (self, rule: str, command: str, message: str) -> None
+pyclig.testing.assert_conforms (cli: click.core.Command, *, ignore: collections.abc.Mapping[str, str] | None = None, samples: collections.abc.Iterable[collections.abc.Sequence[str]] = ()) -> None
+pyclig.testing.check (cli: click.core.Command, *, ignore: collections.abc.Mapping[str, str] | None = None, samples: collections.abc.Iterable[collections.abc.Sequence[str]] = ()) -> list[pyclig._conformance.Finding]
+pyclig.testing.invoke (cli: pyclig._core.Command, args: collections.abc.Sequence[str] = (), *, in_tty: bool = False, out_tty: bool = False, err_tty: bool = False, color: bool = False, interactive: bool = False, width: int = 80, env: collections.abc.Mapping[str, str | None] | None = None, input: str | bytes | typing.IO[typing.Any] | None = None, config_files: bool = False) -> click.testing.Result
+rule:ARG-1
+rule:ARG-16
+rule:ARG-2
+rule:ARG-3
+rule:ARG-5
+rule:ARG-6
+rule:BAS-2
+rule:BAS-4
+rule:BAS-5
+rule:ENV-15
+rule:ENV-2
+rule:ENV-4
+rule:ERR-2
+rule:HELP-1
+rule:HELP-3
+rule:HELP-9
+rule:SUB-3
+rule:SUB-4
+rule:SUB-5
