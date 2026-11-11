@@ -29,6 +29,7 @@ from typing import (
 )
 
 import click
+from click.core import ParameterSource
 from rich.console import Console
 
 from pyclig import _config, _flags, _logging, _output, _run, _signals
@@ -99,6 +100,9 @@ class Context(click.Context):
         if pyclig_state is not None:
             self.meta[_run.STATE_KEY] = pyclig_state
 
+    _deprecation: bool | str = False
+    """The `deprecated` of a command that `Command.invoke` is announcing."""
+
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         """Invoke a callback, raising a deferred config file error first.
 
@@ -115,6 +119,8 @@ class Context(click.Context):
         Returns:
             The callback's return value.
         """
+        if self._deprecation:
+            self.command.deprecated = self._deprecation
         state = _run.state_of(self)
         if state is not None and state.config_error is not None:
             if (
@@ -538,6 +544,59 @@ def _piped(
     return cast(ctx, value)
 
 
+def _deprecated(kind: str, name: str, reason: bool | str) -> str:
+    """Return the warning for a deprecated command or parameter in use."""
+    suffix = f" - {reason}" if isinstance(reason, str) else ""
+    return f"{kind} {name} is deprecated{suffix}"
+
+
+def _announced(
+    param: click.Parameter,
+    handle: Callable[..., tuple[Any, list[str]]],
+    ctx: click.Context,
+    opts: Mapping[str, Any],
+    args: list[str],
+) -> tuple[Any, list[str]]:
+    """Process a deprecated parameter, warning in pyclig's style when given.
+
+    NOTE: click prints a red `DeprecationWarning:` line in the middle of
+    `handle_parse_result`, so `deprecated` is down for that one call; a
+    parameter's help & metavar are not rendered inside it. Given means
+    what it does to click: on the command line or from the environment.
+    Nothing is printed while completing; outside a run click's own line
+    stays.
+
+    Args:
+        param: The deprecated parameter.
+        handle: click's `handle_parse_result`, bound to `param`.
+        ctx: The command's context.
+        opts: The parsed options.
+        args: The remaining arguments.
+
+    Returns:
+        The value & the remaining arguments.
+    """
+    state = _run.state_of(ctx)
+    reason = param.deprecated
+    if not reason or (state is None and not ctx.resilient_parsing):
+        return handle(ctx, opts, args)
+    param.deprecated = False
+    try:
+        result = handle(ctx, opts, args)
+    finally:
+        param.deprecated = reason
+    source = ctx.get_parameter_source(param.name or "")
+    given = source is not None and source < ParameterSource.DEFAULT_MAP
+    if state is not None and given and not ctx.resilient_parsing:
+        if isinstance(param, click.Option):
+            name = param.get_error_hint(ctx)
+        else:
+            name = repr(param.human_readable_name)
+        message = _deprecated(param.param_type_name, name, reason)
+        _output.notice(state.err, level="warning", message=message)
+    return result
+
+
 def _show_version(ctx: click.Context) -> str:
     """Return the `-v/--version` line, e.g. `dkais 0.1.0`."""
     return f"{ctx.find_root().info_name} {_run.version(_package(ctx))}"
@@ -581,7 +640,9 @@ class Command(click.Command):
     spelling wins. An option with `prompt=` prompts on STDERR; when the run
     cannot prompt it takes its default, or fails naming itself without
     one. A `click.File` to read refuses `-` while STDIN is a terminal,
-    instead of waiting for typed input. Usage errors raised while
+    instead of waiting for typed input. A `deprecated=` command or
+    parameter in use prints one `warning:` line on STDERR, in place of
+    click's `DeprecationWarning:`. Usage errors raised while
     parsing are bound to this command, so they show its usage. `main` runs
     the command with fresh consoles & logging; `errors` is read from the
     command `main` is called on.
@@ -623,10 +684,13 @@ class Command(click.Command):
         if config is not None:
             self.params[:0] = _config.options(config)
         for param in self.params:
-            if isinstance(param.type, click.File) and "r" in param.type.mode:
-                piped = functools.partial(
-                    _piped, param, param.type_cast_value
+            if param.deprecated:
+                announced = functools.partial(
+                    _announced, param, param.handle_parse_result
                 )
+                setattr(param, "handle_parse_result", announced)
+            if isinstance(param.type, click.File) and "r" in param.type.mode:
+                piped = functools.partial(_piped, param, param.type_cast_value)
                 setattr(param, "type_cast_value", piped)
             if not isinstance(param, click.Option):
                 continue
@@ -864,6 +928,20 @@ class Command(click.Command):
             Interrupted: On Ctrl-C.
             Escaped: Carrying an `EOFError` or a pipe `OSError`.
         """
+        state = _run.state_of(ctx)
+        reason = self.deprecated if state is not None else False
+        if state is not None and reason:
+            # click would print a red `DeprecationWarning:` line: the flag
+            # is down only until `Context.invoke` reaches the callback,
+            # which may render help that reads it
+            _output.notice(
+                state.err,
+                level="warning",
+                message=_deprecated("command", repr(self.name), reason),
+            )
+            self.deprecated = False
+            if isinstance(ctx, Context):
+                ctx._deprecation = reason
         try:
             return super().invoke(ctx)
         except KeyboardInterrupt as error:
@@ -874,6 +952,9 @@ class Command(click.Command):
             if error.errno in _run.PIPE_ERRNOS:
                 raise _run.Escaped(error) from error
             raise
+        finally:
+            if reason:
+                self.deprecated = reason
 
 
 class Group(Command, click.Group):

@@ -1613,3 +1613,116 @@ def test_file_help_and_completion_ignore_a_terminal_stdin() -> None:
             pass
         with pytest.raises(click.BadParameter, match="STDIN is a terminal"):
             count.make_context("count", [])
+
+
+@pyclig.group("dep")
+def dep_cli() -> None:
+    """Keep old spellings working."""
+
+
+@dep_cli.command(deprecated="use 'dep new'")
+@pyclig.pass_context
+def old(ctx: pyclig.Context) -> None:
+    """Do it the old way."""
+    click.echo(ctx.get_help().splitlines()[3])
+
+
+@dep_cli.command(deprecated=True)
+def older() -> None:
+    """Do it the older way."""
+    click.echo("ran")
+
+
+@dep_cli.group(deprecated="use 'dep'")
+def legacy() -> None:
+    """Group the old commands."""
+
+
+@legacy.command()
+def leaf() -> None:
+    """Run below a deprecated group."""
+    click.echo("leaf")
+
+
+@dep_cli.command()
+@click.option("--from", "source", deprecated="use --source")
+@click.option("--source", default="here")
+@click.option("--fast", is_flag=True, deprecated=True, envvar="DEP_FAST")
+@click.argument("extra", required=False, deprecated=True)
+def new(source: str, fast: bool, extra: str | None) -> None:
+    """Do it the new way."""
+    click.echo(f"{source} {fast} {extra}")
+
+
+@pytest.mark.parametrize(
+    ("args", "stdout", "stderr"),
+    [
+        (
+            ["old"],
+            "  Do it the old way. (DEPRECATED: use 'dep new')\n",
+            "warning: command 'old' is deprecated - use 'dep new'\n",
+        ),
+        (["older"], "ran\n", "warning: command 'older' is deprecated\n"),
+        (
+            ["legacy", "leaf"],
+            "leaf\n",
+            "warning: command 'legacy' is deprecated - use 'dep'\n",
+        ),
+        (
+            ["new", "--from", "there"],
+            "there False None\n",
+            "warning: option '--from' is deprecated - use --source\n",
+        ),
+        (
+            ["new", "--fast", "more"],
+            "here True more\n",
+            (
+                "warning: option '--fast' is deprecated\n"
+                "warning: argument 'EXTRA' is deprecated\n"
+            ),
+        ),
+        (["new"], "here False None\n", ""),
+    ],
+    ids=["reason", "bare", "group", "option", "flag-argument", "not-given"],
+)
+def test_deprecated_use_warns_on_stderr(
+    args: list[str], stdout: str, stderr: str
+) -> None:
+    """Assert a deprecated command or parameter prints one `warning:` line.
+
+    NOTE: `old` prints its own help while it runs, so the deprecation label
+    must already be back in place inside the callback.
+    """
+    result = invoke(dep_cli, args)
+    assert result.exit_code == 0
+    assert result.stdout == stdout
+    assert result.stderr == stderr
+    assert "DeprecationWarning" not in result.output
+
+
+def test_deprecated_parameter_from_the_environment_warns() -> None:
+    """Assert an env var counts as given, as click decides."""
+    result = invoke(dep_cli, ["new"], env={"DEP_FAST": "1"})
+    assert result.stdout == "here True None\n"
+    assert result.stderr == "warning: option '--fast' is deprecated\n"
+
+
+def test_deprecated_stays_marked_in_help() -> None:
+    """Assert help keeps `(DEPRECATED)` & prints no warning."""
+    result = invoke(dep_cli, ["--help"])
+    assert "(DEPRECATED: use 'dep new')" in result.stdout
+    assert "(DEPRECATED)" in result.stdout
+    result = invoke(dep_cli, ["new", "--help"])
+    assert "(DEPRECATED: use --source)" in result.stdout
+    assert "[EXTRA!]" in result.stdout
+    assert result.stderr == ""
+    assert old.deprecated == "use 'dep new'"
+
+
+def test_deprecated_parameter_silent_while_completing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Assert resilient parsing prints no warning."""
+    with new.make_context("new", ["--fast"], resilient_parsing=True):
+        pass
+    assert capsys.readouterr().err == ""
