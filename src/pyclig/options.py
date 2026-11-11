@@ -50,6 +50,21 @@ import click
 
 from pyclig import _run
 
+__all__: list[str] = [
+    "NoneOr",
+    "confirm",
+    "dry_run",
+    "force",
+    "json_output",
+    "output",
+    "plain",
+    "port",
+    "secret",
+    "select_all",
+    "timeout",
+    "user",
+]
+
 FC = TypeVar("FC", bound=Callable[..., Any] | click.Command)
 
 

@@ -348,3 +348,25 @@ def test_none_or_from_the_environment_and_config() -> None:
         click.echo(f"{limit!r} {mode!r}")
 
     assert invoke(mapped, []).stdout == "7 None\n"
+
+
+def test_star_import_gives_only_the_factories() -> None:
+    """Assert `from pyclig.options import *` leaks no import of the module."""
+    namespace: dict[str, object] = {}
+    exec("from pyclig.options import *", namespace)  # noqa: S102
+    del namespace["__builtins__"]
+    assert "click" not in namespace
+    assert sorted(namespace) == [
+        "NoneOr",
+        "confirm",
+        "dry_run",
+        "force",
+        "json_output",
+        "output",
+        "plain",
+        "port",
+        "secret",
+        "select_all",
+        "timeout",
+        "user",
+    ]
