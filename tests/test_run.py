@@ -754,7 +754,11 @@ def test_root_help_of_an_installed_app_skips_importlib_metadata(
         line.rpartition("|")[2].strip() for line in result.stderr.splitlines()
     }
     assert "click" in imported
-    assert not imported & {"importlib.metadata", "urllib.parse", "platform"}
+    forbidden = {"importlib.metadata", "urllib.parse", "platform"}
+    if sys.version_info < (3, 12):
+        # NOTE: Python 3.11's `pathlib` imports `urllib.parse` itself
+        forbidden.discard("urllib.parse")
+    assert not imported & forbidden
 
 
 @pyclig.command("leaky")
