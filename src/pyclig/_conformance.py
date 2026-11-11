@@ -86,7 +86,7 @@ _NEAR_LENGTH = 4
 _SECRET = _config._SECRET
 """A name ending in a secret word - shared with `.env`, which skips them."""
 _UNKNOWN_FLAG = "--pyclig-no-such-flag"
-_CLEARED = ("COLUMNS", "FORCE_COLOR", "NO_COLOR", "TTY_COMPATIBLE")
+_CLEARED = _run.RICH_VARIABLES
 _MESSAGE = ("error:", "warning:")
 _TRACEBACK = "Traceback (most recent call last)"
 
