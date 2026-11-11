@@ -407,7 +407,7 @@ flags also take `default=` and `envvar=`:
 | `user()` | `-u`, `--user NAME` | `user` | Per command |
 | `secret(name)` | `--<name>-file FILE` | `<name>`, the file's text (see Secrets) | Per command |
 | `timeout()` | `--timeout SECONDS` | `timeout`, a positive float (default 30) | Per command |
-| `confirm()` | `--confirm NAME` | `confirmed`, for `confirm_name` | Per command |
+| `confirm_name()` | `--confirm NAME` | `confirmed`, for `confirm_name` | Per command |
 
 `options.NoneOr` is a type for an option whose value can be switched off: `--limit none` hands
 the command None, any other value goes to the inner type, and help shows `--limit INTEGER|none`.
@@ -448,11 +448,12 @@ and when the run cannot prompt it takes its default, or fails naming the option 
 so `--no-input` never lies.
 
 A severe action - one that cannot be undone, such as dropping a database - asks for the resource's
-name instead. `pyclig.confirm_name()` pairs with `options.confirm()`, and `--force` never skips it:
+name instead. `pyclig.confirm_name()` pairs with `options.confirm_name()`, and `--force` never
+skips it:
 
 ```python
 @cli.command()
-@pyclig.options.confirm()
+@pyclig.options.confirm_name()
 @pyclig.pass_context
 def drop(ctx: pyclig.Context, confirmed: str | None) -> None:
     """Drop the production database."""

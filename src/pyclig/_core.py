@@ -461,7 +461,7 @@ def confirm_name(
 
     ```python
     @cli.command()
-    @pyclig.options.confirm()
+    @pyclig.options.confirm_name()
     @pyclig.pass_context
     def drop(ctx: pyclig.Context, confirmed: str | None) -> None:
         \"\"\"Drop the production database.\"\"\"

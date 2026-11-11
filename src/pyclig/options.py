@@ -9,7 +9,7 @@ the flag in the application's own terms.
 | `plain()`       | `--plain`         | -             | `plain`      |
 | `select_all()`  | `-a`, `--all`     | `select_all`  |              |
 | `force()`       | `-f`, `--force`   | `force`       |              |
-| `confirm()`     | `--confirm NAME`  | `confirmed`   |              |
+| `confirm_name()` | `--confirm NAME` | `confirmed`   |              |
 | `dry_run()`     | `-n`, `--dry-run` | `dry_run`     |              |
 | `secret(name)`  | `--<name>-file`   | `<name>`      |              |
 | `output()`      | `-o`, `--output`  | `output`      |              |
@@ -52,7 +52,7 @@ from pyclig import _run
 
 __all__: list[str] = [
     "NoneOr",
-    "confirm",
+    "confirm_name",
     "dry_run",
     "force",
     "json_output",
@@ -236,13 +236,14 @@ def secret(
     )
 
 
-def confirm(
+def confirm_name(
     *,
     help: str = "Type the name to confirm a severe action.",  # noqa: A002 - click's own keyword
 ) -> Callable[[FC], FC]:
     """Add `--confirm NAME`, passed to the command as `confirmed` or None.
 
-    Pair it with `pyclig.confirm_name`, which prompts when it is absent.
+    Pair it with `pyclig.confirm_name`, which takes `confirmed` & prompts
+    when it is absent - as `force()` pairs with `pyclig.confirm`.
 
     Args:
         help: The flag's help text.

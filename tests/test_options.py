@@ -226,10 +226,28 @@ def test_kit_is_clean_on_every_factory() -> None:
     @pyclig.options.port()
     @pyclig.options.user()
     @pyclig.options.secret("token")
+    @pyclig.options.confirm_name()
+    @pyclig.options.timeout()
     def every(**kwargs: object) -> None:
         """Accept every standard option."""
 
     assert_conforms(kit)
+
+
+def test_confirm_name_factory_replaces_confirm() -> None:
+    """Assert `confirm_name()` adds `--confirm NAME` as `confirmed`, and
+    that the 0.x name `options.confirm` is gone."""
+
+    @pyclig.command("drop")
+    @pyclig.options.confirm_name()
+    def drop(confirmed: str | None) -> None:
+        """Print the confirmed name."""
+        click.echo(repr(confirmed))
+
+    assert invoke(drop, ["--confirm", "prod"]).stdout == "'prod'\n"
+    assert invoke(drop, []).stdout == "None\n"
+    assert "--confirm NAME" in invoke(drop, ["--help"]).stdout
+    assert not hasattr(pyclig.options, "confirm")
 
 
 @pyclig.group("net")
@@ -358,7 +376,7 @@ def test_star_import_gives_only_the_factories() -> None:
     assert "click" not in namespace
     assert sorted(namespace) == [
         "NoneOr",
-        "confirm",
+        "confirm_name",
         "dry_run",
         "force",
         "json_output",

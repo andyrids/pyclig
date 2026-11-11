@@ -83,7 +83,7 @@ pyclig.info (console: rich.console.Console, *, message: str) -> None
 pyclig.notice (console: rich.console.Console, *, level: Literal['error', 'warning'], message: str, items: collections.abc.Iterable[str] = ()) -> None
 pyclig.options module
 pyclig.options.NoneOr class (self, inner: click.types.ParamType[typing.Any, typing.Any] | type = STRING, *, word: str = 'none') -> None
-pyclig.options.confirm (*, help: str = 'Type the name to confirm a severe action.') -> collections.abc.Callable[[~FC], ~FC]
+pyclig.options.confirm_name (*, help: str = 'Type the name to confirm a severe action.') -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.dry_run (*, help: str = 'Show what would be done, without doing it.') -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.force (*, help: str = 'Proceed without confirmation.') -> collections.abc.Callable[[~FC], ~FC]
 pyclig.options.json_output (*, help: str = 'Output as JSON.') -> collections.abc.Callable[[~FC], ~FC]
