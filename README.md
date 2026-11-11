@@ -59,7 +59,16 @@ name the group - the name is the program name, also under `python -m`, and sets 
 completion variable (`_DKAIS_COMPLETE`). A single-command tool uses `pyclig.command()` instead,
 and gets everything a command of a group does.
 
-Commands take `examples=` too: their `--help` leads with them under `EXAMPLES:`.
+Commands take `examples=` too: their `--help` leads with them under `EXAMPLES:`. An example
+may show its output on the lines after the invocation, which print indented under it:
+
+```python
+@cli.command(examples=["dkais count --start 2026-10\n31 archives"])
+```
+
+`docs="https://..."` on a group or a command adds a closing `LEARN MORE:` section to its full
+help. The root's also lists `Issues`, the bug tracker in the distribution's `Project-URL`
+metadata.
 
 ## What every command gets
 
@@ -67,9 +76,13 @@ Commands take `examples=` too: their `--help` leads with them under `EXAMPLES:`.
 | --- | --- |
 | `-h`, `--help` | Usage, description, examples, commands, options, global options & epilog |
 | `-h` anywhere | Help, exit 0, even after a typo - anywhere before `--` |
-| Bare `prog` | Concise help on STDOUT, exit 0 - `--help` without options & epilog |
+| Bare `prog` | Concise help on STDOUT, exit 0 - no global options, epilog or links |
 | `prog cmd` needing arguments | Concise help on STDERR, exit 2 (`no_args_is_help=True`) |
-| `-v`, `--version` | `prog version` from the metadata, else `0.0.0+unknown`; an app's `-v` wins |
+| Concise help | Lists a command's own options when it has 1 to 6 |
+| Headings | Bold where the console is styled - never on a pipe or with `TERM=dumb` |
+| `-v`, `--version` | `prog version`, before or after a command name; an app's `-v` wins |
+| `deprecated=` | In use: `warning: command 'old' is deprecated - REASON` on STDERR |
+| `click.File("r")` | `-` on a terminal STDIN is a usage error, not a silent wait |
 | Run flags | `-d`, `-q`, `--no-color` & `--no-input`, before or after the command name |
 | `<PROG>_DEBUG`, `<PROG>_NO_COLOR` | `-d` & `--no-color` from the environment, before parsing |
 | `help`, `help cmd...` | A group's or the named command's help, exit 0; unlisted, an app's wins |
@@ -260,9 +273,18 @@ messages on STDERR:
 | Any other exception | trimmed traceback, `error:`, bug report hint | 70 |
 
 `pyclig.ExitCode` names the codes: `OK`, `FAILURE`, `USAGE`, `INTERNAL`,
-`INTERRUPT` & `TERMINATE`. The bug
-report hint names the distribution's `Issues` project URL. Messages are never parsed as Rich
+`INTERRUPT` & `TERMINATE`. Messages are never parsed as Rich
 markup: user input such as `[/b]` or `:warning:` prints as typed.
+
+The bug report hint links the distribution's `Issues` project URL on a line of its own, never
+wrapped. On github.com & gitlab.com the link opens a new issue, pre-filled with:
+
+- the program & its version, the pyclig version;
+- the Python version & implementation, the operating system & its release;
+- the exception's type.
+
+It never contains the exception's message, the command line arguments, a path or the environment,
+which may hold secrets. The user pastes the output themselves.
 
 `hint` & `exit_code` are read by attribute, so the application's exceptions need no `pyclig`
 import - a class attribute on the exception type is enough:
@@ -305,8 +327,16 @@ finally:
 
 The timeout counts from the interrupt; `timeout=None` allows any time, though a second signal still
 skips. A skip or timeout flushes the streams and exits even while the block is stuck in a blocking
-call. Off the main thread, or with no interrupt, the block simply runs. A blocking Windows call can
-delay the first Ctrl-C until it returns.
+call. Off the main thread, or with no interrupt, the block simply runs.
+
+A blocking call, such as a socket read on Windows, holds Ctrl-C back until it returns. Wrap
+blocking network I/O in the same block: the notice then prints at once, and the run exits when
+the call returns or the timeout passes, whichever is first:
+
+```python
+with ctx.cleanup(timeout=2):
+    data = connection.recv(4096)
+```
 
 ## Output
 
@@ -378,6 +408,14 @@ flags also take `default=` and `envvar=`:
 | `secret(name)` | `--<name>-file FILE` | `<name>`, the file's text (see Secrets) | Per command |
 | `timeout()` | `--timeout SECONDS` | `timeout`, a positive float (default 30) | Per command |
 | `confirm()` | `--confirm NAME` | `confirmed`, for `confirm_name` | Per command |
+
+`options.NoneOr` is a type for an option whose value can be switched off: `--limit none` hands
+the command None, any other value goes to the inner type, and help shows `--limit INTEGER|none`.
+The word is matched in any case, from the command line, an `envvar=` or a config file:
+
+```python
+@click.option("--limit", type=pyclig.options.NoneOr(int), default=50)
+```
 
 ## Prompts & confirmation
 
@@ -503,11 +541,29 @@ options prompt and read their answer from `input`; click echoes that answer to S
 prompt (`... [y/N]: y`).
 
 `assert_conforms` walks the CLI and reports deviations by the rule IDs of
-`docs/clig-coverage.md`: flags without a long form or help text, standard short flags with
-another meaning, secret-looking flags & environment variables, a root without examples, plain
-click children, and help or unknown-flag probes that misuse exit codes or streams. It never runs
-a command body. `check` returns the `Finding`s instead of asserting; `ignore` needs a reason per
-rule.
+`docs/clig-coverage.md`. It never runs a command body unless given `samples=`. `check` returns
+the `Finding`s instead of asserting; `ignore` needs a reason per rule.
+
+| Rules | Finding |
+| --- | --- |
+| HELP-1, HELP-3, HELP-9 | Misused help probes; a flag without help; a root without examples |
+| BAS-2, BAS-5 | Help or unknown-flag probes with the wrong exit code or stream |
+| ARG-1, ARG-5 | An argument typed like a flag's value; arguments of differing types |
+| ARG-2, ARG-3 | A flag without a long form; a one-letter flag outside the standard set |
+| ARG-6 | A standard short with another meaning, or a standard long with another short |
+| ARG-16, ENV-15 | Secret-looking flags & environment variables |
+| ENV-2, ENV-4 | An `envvar=` that is not portable, or that reuses a common name |
+| SUB-3 | A plain click child; one flag with another short or kind across commands |
+| SUB-4, SUB-5 | Sibling names mixing `-` & `_` or upper case; confusable names |
+
+`samples=` are command lines the kit runs for real, so name ones that are safe in a test:
+
+```python
+assert_conforms(cli, samples=[["list", "--json"], ["show", "--value", "x"]])
+```
+
+A sample that exits non-zero or prints invalid `--json` is BAS-4, an `error:` or `warning:` line
+on STDOUT is BAS-5, and a traceback is ERR-2.
 
 ## Parser-less entry points
 

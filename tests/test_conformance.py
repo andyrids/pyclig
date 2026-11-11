@@ -31,6 +31,19 @@ def ship(tag: str | None, force: bool) -> None:
     calls.append("ship")
 
 
+@clean.command()
+@click.argument("src")
+@click.argument("dst")
+@click.argument("extra", nargs=-1)
+@click.option("--tag", help="The tag to copy under.")
+@click.option("-o", "--output", help="Where to report.")
+@click.option("--editor", envvar="EDITOR", help="The editor, as $EDITOR.")
+@click.option("--proxy", envvar="CLEAN_PROXY_URL", help="The proxy to use.")
+def copy(**kwargs: object) -> None:
+    """Copy, within every static rule."""
+    calls.append("copy")
+
+
 @pyclig.group("adv")
 @click.option("--site", required=True, help="The site to act on.")
 def adv() -> None:
@@ -132,6 +145,104 @@ def open_(**kwargs: object) -> None:
     calls.append("open")
 
 
+@pyclig.group("lax", examples=["lax scale 3"])
+def lax() -> None:
+    """Group commands breaking one static flag rule each."""
+    calls.append("lax")
+
+
+@lax.command()
+@click.argument("count", type=int)
+def scale(count: int) -> None:
+    """Scale, taking a setting as an argument."""
+    calls.append("scale")
+
+
+@lax.command()
+@click.argument("name")
+@click.argument("target", type=click.Path())
+def tag(name: str, target: str) -> None:
+    """Tag, taking two different things as arguments."""
+    calls.append("tag")
+
+
+@lax.command()
+@click.option("-j", "--jobs", type=int, help="A one-letter flag of its own.")
+@click.option("--all", "select_all", is_flag=True, help="A flag here.")
+def build(jobs: int | None, select_all: bool) -> None:
+    """Build, with a non-standard short flag."""
+    calls.append("build")
+
+
+@lax.command()
+@click.option("-F", "--force", is_flag=True, help="A standard name.")
+@click.option("--all", "select_all", help="A value here.")
+def push(force: bool, select_all: str | None) -> None:
+    """Push, with `--all` meaning something else."""
+    calls.append("push")
+
+
+@lax.command()
+@click.option("--region", envvar="lax-region", help="A name no shell exports.")
+@click.option("--workdir", envvar="HOME", help="A variable with a meaning.")
+@click.option("--via", envvar="HTTPS_PROXY", help="Another one.")
+def env(**kwargs: object) -> None:
+    """Read badly named environment variables."""
+    calls.append("env")
+
+
+@pyclig.group("named", examples=["named status"])
+def named() -> None:
+    """Group commands whose names break the naming rules."""
+    calls.append("named")
+
+
+def _named(ctx: click.Context) -> None:
+    """Record that a `named` command ran."""
+    calls.append(ctx.info_name or "")
+
+
+for _name in (
+    "add_item",
+    "list-items",
+    "Push",
+    "update",
+    "upgrade",
+    "remove",
+    "delete",
+    "status",
+    "stats",
+    "ls",
+    "ps",
+):
+    named.command(_name, help=f"Run {_name}.")(click.pass_context(_named))
+named.add_command(named.commands["remove"], "rm")
+
+
+@pyclig.group("runs", examples=["runs show"])
+def runs() -> None:
+    """Group commands for the kit to run as samples."""
+    calls.append("runs")
+
+
+@runs.command()
+@click.option("--json", "as_json", is_flag=True, help="Print JSON.")
+@click.option("--broken", is_flag=True, help="Print JSON cut short.")
+@click.option("--code", type=int, default=0, help="The exit code.")
+@click.option("--say", default="shown", help="The line for STDOUT.")
+@click.option("--crash", is_flag=True, help="Print a traceback.")
+def show(
+    as_json: bool, broken: bool, code: int, say: str, crash: bool
+) -> None:
+    """Show a line, well or badly."""
+    calls.append("show")
+    if crash:
+        click.echo("Traceback (most recent call last):", err=True)
+    click.echo('{"say": ' if broken else '{"say": 1}' if as_json else say)
+    if code:
+        raise SystemExit(code)
+
+
 @pytest.fixture(autouse=True)
 def _no_callbacks() -> None:
     """Reset the callback record before every test."""
@@ -162,12 +273,140 @@ def test_findings_by_rule_and_command() -> None:
     assert found == {
         ("HELP-9", "adv"),
         ("ARG-2", "adv cp"),
+        ("ARG-3", "adv cp"),
         ("ARG-6", "adv cp"),
         ("ARG-16", "adv cp"),
         ("ENV-15", "adv cp"),
         ("HELP-3", "adv download"),
         ("SUB-3", "adv plain"),
     }
+
+
+def test_flag_rules_by_rule_and_command() -> None:
+    """Assert each static flag rule is reported by its coverage ID."""
+    found = {(f.rule, f.command) for f in check(lax)}
+    assert found == {
+        ("ARG-1", "lax scale"),
+        ("ARG-5", "lax tag"),
+        ("ARG-3", "lax build"),
+        ("ARG-3", "lax push"),
+        ("ARG-6", "lax push"),
+        ("SUB-3", "lax push"),
+        ("ENV-2", "lax env"),
+        ("ENV-4", "lax env"),
+    }
+    assert calls == []
+
+
+def test_flag_rule_messages_name_the_parameter() -> None:
+    """Assert each static flag finding names what deviates, once each."""
+    messages = [f.message for f in check(lax)]
+    assert messages == [
+        "`COUNT` is a setting (integer) - use a flag",
+        "arguments of differing types: `NAME` (text), `TARGET` (path)",
+        "`-j` is not a standard one-letter flag",
+        "`-F` is not a standard one-letter flag",
+        "`--force` is conventionally `-f`, here `-F`",
+        "`--all` takes a value here, is a flag on `lax build`",
+        "`--region` reads `lax-region` - name it `[A-Z_][A-Z0-9_]*`",
+        "`--workdir` reads `HOME`, which already has a meaning",
+        "`--via` reads `HTTPS_PROXY`, which already has a meaning",
+    ]
+
+
+def test_same_flag_with_another_short_is_found() -> None:
+    """Assert one long name with two shorts is a SUB-3 finding."""
+
+    @pyclig.group("twice", examples=["twice a"])
+    def twice() -> None:
+        """Group two commands spelling `--all` differently."""
+
+    @twice.command()
+    @click.option("-a", "--all", "select_all", is_flag=True, help="All.")
+    def a(select_all: bool) -> None:
+        """Take `-a`."""
+
+    @twice.command()
+    @click.option("-u", "--all", "select_all", is_flag=True, help="All.")
+    @click.option("--user", help="No short at all, so no finding.")
+    def b(select_all: bool, user: str | None) -> None:
+        """Take `-u`."""
+
+    found = [(f.rule, f.message) for f in check(twice) if f.command != "twice"]
+    assert found == [
+        ("ARG-6", "`-u` is conventionally `--user`, here `--all`"),
+        ("SUB-3", "`--all` has `-u` here, `-a` on `twice a`"),
+    ]
+
+
+def test_naming_rules_by_rule_and_command() -> None:
+    """Assert mixed, upper-case & confusable subcommand names are found."""
+    found = [(f.rule, f.command, f.message) for f in check(named)]
+    assert found == [
+        (
+            "SUB-4",
+            "named",
+            "subcommands mix `-` & `_`: `list-items`, `add_item`",
+        ),
+        ("SUB-4", "named", "`Push` is not lower-case"),
+        ("SUB-5", "named", "`update` & `upgrade` are easily confused"),
+        ("SUB-5", "named", "`remove` & `delete` are easily confused"),
+        ("SUB-5", "named", "`status` & `stats` are easily confused"),
+    ]
+    assert calls == []
+
+
+def test_passing_samples_have_no_findings() -> None:
+    """Assert samples that behave are run & add no findings."""
+    samples = [
+        ["show"],
+        ["show", "--json"],
+        ["show", "--say", "no error: here"],
+        ("show", "--say", "Errors: 0"),
+    ]
+    assert check(runs, samples=samples) == []
+    assert calls == ["runs", "show"] * 4
+    assert_conforms(runs, samples=iter(samples))
+
+
+@pytest.mark.parametrize(
+    ("sample", "rule", "message"),
+    [
+        (["show", "--code", "3"], "BAS-4", "exits 3, not 0"),
+        (["show", "--json", "--broken"], "BAS-4", "`--json` prints no JSON"),
+        (
+            ["show", "--say", "error: no such file"],
+            "BAS-5",
+            "prints `error: no such file` to STDOUT",
+        ),
+        (
+            ["show", "--say", "warning: old flag"],
+            "BAS-5",
+            "prints `warning: old flag` to STDOUT",
+        ),
+        (["show", "--crash"], "ERR-2", "prints a traceback to STDERR"),
+    ],
+)
+def test_failing_sample_findings(
+    sample: list[str], rule: str, message: str
+) -> None:
+    """Assert a misbehaving sample is found, under its own command line."""
+    command = " ".join(["runs", *sample])
+    if " " in sample[-1]:
+        command = command.replace(sample[-1], f"'{sample[-1]}'")
+    assert check(runs, samples=[sample]) == [Finding(rule, command, message)]
+    with pytest.raises(AssertionError, match=rule):
+        assert_conforms(runs, samples=[sample])
+    assert check(runs, samples=[sample], ignore={rule: "a sample"}) == []
+
+
+def test_samples_clear_the_run_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert a developer's `<PROG>_DEBUG` does not reach a sample."""
+    monkeypatch.setenv("TESTS_DEBUG", "1")
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    assert check(runs, samples=[["show"]]) == []
 
 
 def test_own_help_spelling_is_not_probed() -> None:
@@ -212,6 +451,7 @@ def test_probes_never_run_a_callback() -> None:
     check(adv)
     check(clean)
     check(aided)
+    check(lax)
     assert calls == []
 
 
@@ -274,7 +514,7 @@ def test_assert_conforms_lists_findings() -> None:
     with pytest.raises(AssertionError) as info:
         assert_conforms(adv, ignore={"HELP-9": "sample"})
     lines = str(info.value).splitlines()
-    assert lines[0] == "6 CLIG findings:"
+    assert lines[0] == "7 CLIG findings:"
     assert "ARG-2    adv cp            `-x` has no long form" in lines
     assert not any("HELP-9" in line for line in lines)
 

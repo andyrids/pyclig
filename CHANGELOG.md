@@ -16,6 +16,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > - `Fixed` for any bug fixes.
 > - `Security` in case of vulnerabilities.
 
+## [0.7.0] - 2026-11-11
+
+### Added
+
+- Kit rules, static: ARG-1, ARG-3, ARG-5, ENV-2, ENV-4, SUB-4 & SUB-5; ARG-6 & SUB-3 widened
+- `check` & `assert_conforms` take `samples=`: command lines run for real (BAS-4, BAS-5, ERR-2)
+- `-v/--version` is a global option: `prog show -v` prints the version
+- `options.NoneOr(inner, word="none")`: a value of another type, or a word meaning None
+- A `click.File` to read refuses `-` while STDIN is a terminal, with a usage error
+- `docs=` on `Command`, `command` & `group`, shown under a closing `LEARN MORE:` section
+- The root's full help lists `Issues`, the bug tracker from the distribution's metadata
+- A multi-line `examples=` item shows its output, indented under the invocation
+- Help headings & `USAGE:` are bold where the console is styled; `--no-color` keeps bold
+- A crash on github.com & gitlab.com projects links a pre-filled new issue: versions, platform &
+  exception type only - never the message, arguments, paths or environment
+
+### Changed
+
+- Kit: new findings - the static rules are on by default, so a bare `assert_conforms(cli)` may
+  fail on raising the pin; fix the finding or accept it with `ignore={"ID": "reason"}`
+- Help layout: `-v, --version` moved from `OPTIONS:` to `GLOBAL OPTIONS:`, after the app's own
+- Concise help lists a command's own options when it has 1 to 6
+- A deprecated command or parameter in use prints `warning: ... is deprecated - REASON`, in place
+  of click's red `DeprecationWarning:` line
+- The bug hint reads `... please report it, with the output above:` with the URL on its own line
+- A root context's `color` is True where the STDOUT console is styled, so `click.echo` keeps
+  styles there
+- A subcommand's `GLOBAL OPTIONS:` pointer names the nested group that declares a flag
+
+### Fixed
+
+- `> NUL` on Windows is no longer taken for a terminal: output is plain & `< NUL` cannot prompt
+- An empty `PYTHONIOENCODING` is treated as unset, so redirected output stays UTF-8
+
 ## [0.6.0] - 2026-11-10
 
 ### Added

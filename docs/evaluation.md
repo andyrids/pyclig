@@ -747,3 +747,112 @@ New in the fixes: none. One residual, noted and not a defect: a signal landing b
 detach and `watcher.stop()` with `state.signal` already set raises `KeyboardInterrupt` out of
 the `finally`, so `stop` is skipped; the run exits 130 at once, and only an in-process runner
 would keep the daemon thread and its wakeup fd until the process ends. A window of microseconds.
+
+## Round 7 - closing the rows
+
+Date: 11 November 2026. `docs/plan-0.7.0.md` set eight items to close every row of
+`docs/clig-coverage.md` that was neither `done` nor owned `out`; `feat/close-rows` ships them in
+16 feature & fix commits (`6e00805` to `4608fd7`), three evidence-only test commits and the docs
+(`a43fb11`). Two Fable 5.2 implementers worked one phase per message (A: P1-P3, about 173k
+tokens; B: P4-P8, about 271k), and the mediator reviewed each phase's diff and re-ran the gate
+before the next. Consumers ran unmodified in scratch clones on a wheel of the branch
+(`SETUPTOOLS_SCM_PRETEND_VERSION=0.7.0`), first on their locked 0.6.0.
+
+| Repository | Tests | Notes |
+| --- | --- | --- |
+| pyclig | 556 passed, 15 skipped, 97% | 3.11, 3.13 & 3.14 after fix 1; mypy & prek clean |
+| pyclig on WSL (Linux, 3.14) | 567 passed, 4 skipped | Native filesystem, installed |
+| pkgdx (scratch, `4e6920b`) | 242 on 0.6.0; 242 on the wheel | As predicted: no findings |
+| dkais (scratch, `e15e060`) | 147 on 0.6.0; 146 on the wheel, 1 fail | As predicted (1) |
+| template, generated `cli=True` | 5 on 0.6.0; 5 on the wheel | As predicted: no findings |
+| pkgdx 0.7.0 from PyPI on the wheel | `--help` & `help init` exit 0 | Kit clean: the fallback case |
+
+1. `test_cli_conforms_to_the_guidelines`: `ARG-3 dkais download` for `-j` (`--jobs`), the one
+   finding the plan predicted.
+
+### Verdict on the 0.7.0 items
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| 1 static kit rules | Confirmed; S1 exact | `test_conformance.py`, fixture `lax` |
+| 2 `samples=` | Confirmed | `test_conformance.py` sample tests |
+| 3 robustness | Confirmed; S3 by hand | `test_hostile_environment_changes_nothing` |
+| 4 arguments | Confirmed | `test_deprecated_use_warns_on_stderr` |
+| 5 help content | Confirmed after a perf fix | `test_root_help_of_an_installed_app_...` |
+| 6 help style | Confirmed; S6 by hand | `test_help_bold_follows_the_real_console` |
+| 7 bug report URL | Confirmed; defect 1 | `test_bug_report_url_carries_nothing_private` |
+| 8 docs | Confirmed: no row left open | 145 rows, each `done*` or owned `out` |
+
+Reversion: for each of the 16 commits that change `src/`, its tests ran with `src/` at the
+commit's parent. Every commit has failing tests; `NoneOr` and `docs=` fail at import. New tests
+that pass at the parent are guards by design: real consoles & descriptor-less streams stay
+terminals, `-v` under resilient parsing, a piped STDIN or a named file is read, `(DEPRECATED)` in
+help, no or many options in concise help, single-line examples unchanged, the `importlib`
+fallback, plain help without styling, an unstyled usage block, and a URL with nothing private.
+
+Design rules:
+
+- Public signatures against 0.6.0 (`inspect.signature` over `pyclig`, `options`, `testing`,
+  `paths` & the classes): nothing removed or changed but for new keyword-only `docs=`,
+  `samples=` & `err=`, plus `options.NoneOr`.
+- `import pyclig` loads none of `importlib.metadata`, `rich.traceback`, `rich.logging`,
+  `_conformance`, `socket`, `urllib.parse` or `platform`. `ctypes` loads, as on 0.6.0, through
+  `rich.console`.
+- Runtime dependencies are unchanged.
+
+Start-up, median of 15 (0.6.0 → wheel): `pkgdx --help` 163 → 153 ms, `pkgdx -v` 154 → 152 ms,
+`dkais --help` 158 → 153 ms, `dkais -v` 151 → 144 ms, `import pyclig` 118-120 ms on both. Within
+noise. Before the P5 follow-up, root `--help` of an installed app cost +20 ms
+(`importlib.metadata` for the `Issues` line), which broke the plan's +10 ms block; `54f6463`
+reads `METADATA` directly and brought it back to the pre-feature 147-149 ms.
+
+By hand (S3, 11 November): Ctrl-C during `recv` inside `ctx.cleanup(timeout=3)` in Windows
+Terminal & WSL said so at once and exited 130 at the timeout, a second Ctrl-C skipped the block;
+`> NUL` picked `plain`; Git Bash `</dev/null` reported an empty secret, exit 2. S6, the same
+day: help headings & `USAGE:` bold in Windows Terminal & WSL, kept with `--no-color`; plain through
+`| more`, a file, `| cat -v` & `TERM=dumb`; a usage error's `USAGE:` block plain; `LINES=7` gave a
+height of 7.
+
+### Defects found in 0.7.0
+
+1. On Python 3.11, `test_import_has_no_side_effects` and
+   `test_root_help_of_an_installed_app_skips_importlib_metadata` failed: 3.11's `pathlib` imports
+   `urllib.parse` itself, so the new forbidden sets were wrong there. A test defect, not an
+   import by pyclig.
+2. Nit: CHANGELOG listed the `METADATA` fast path under `Fixed`, though it is the implementation
+   of an unreleased feature.
+
+### Departures from the 0.7.0 plan
+
+- ARG-1, ARG-5, SUB-4 & SUB-5 are static; `samples=` serves BAS-4, BAS-5 & ERR-2, with no
+  default samples (approved at the plan).
+- A root context's `color` is True where STDOUT is styled and otherwise left `None`, not False,
+  so an app's own `click.style` output is not stripped on legacy consoles.
+- `FORCE_COLOR` on a pipe gives bold headings; `--no-color` keeps bold.
+- HELP-18 raises `BadParameter`, so its message reads `Invalid value for ...`, as `secret` does.
+- FUT-2 lowers `deprecated` for one click call; `Context.invoke` restores it before the callback,
+  so help rendered inside `old` keeps `(DEPRECATED)`.
+- `Docs` is each command's own `docs=`, not inherited; nested pointer lines group by declaring
+  command.
+- The bug hint returns `(hint, url)`; a tracker gets `/new?...` only when its path ends in
+  `/issues` and has no query.
+- History: one broken commit pair from P5 was folded into `117f00c` before review, so every
+  commit parses.
+
+### Remaining after 0.7.0
+
+- `_announced` toggles `param.deprecated` on a shared object: two runs of one CLI in threads may
+  race. Listed under Known limits.
+- The kit's `_CLEARED` lacks `TTY_INTERACTIVE`, which `testing._CLEARED` has. For 1.0.
+- ROB-2's import-time test fails on a WSL-mounted Windows drive (about 155 ms); on the native
+  WSL filesystem it passes.
+- Not verified this round: the two pre-filled URLs in a browser, with the maintainer; GitLab's
+  percent-encoded `issue%5Btitle%5D` form; macOS; 3.11 & 3.13 on POSIX.
+- `develop` versions as `0.2.1.devN`: `v0.6.0` is not its ancestor, so the bug URL shows that
+  version from a source tree. Pre-existing; release builds are tagged.
+
+### Fixed after evaluation (0.7.0)
+
+1. `ac36bcf` & `2029108`: `test_init` imports `pathlib` before its baseline, and the help test
+   drops `urllib.parse` below 3.12, with a NOTE. 3.11: 556 passed, 15 skipped.
+2. `5bc9a76`: the `Fixed` bullet removed from CHANGELOG.

@@ -192,6 +192,19 @@ def _truthy(value: str | None) -> bool:
     return value is not None and value.strip().lower() not in _FALSE
 
 
+def stdin_is_tty(ctx: click.Context) -> bool:
+    """Return whether the run's STDIN is a terminal, so `-` cannot be read.
+
+    Args:
+        ctx: Any context of the run.
+
+    Returns:
+        The run's own answer, or the real STDIN's outside a run.
+    """
+    state = state_of(ctx)
+    return state.in_tty if state is not None else is_tty(sys.stdin)
+
+
 def state_of(ctx: click.Context) -> State | None:
     """Return the run's state, if the run was started by `Command.main`.
 
@@ -237,7 +250,8 @@ def configure_streams() -> None:
     UTF-8, unless `PYTHONIOENCODING` chose an encoding - then unencodable
     characters are replaced instead.
     """
-    explicit = "PYTHONIOENCODING" in os.environ
+    # Python reads an empty value as unset, so the locale still applies
+    explicit = bool(os.environ.get("PYTHONIOENCODING"))
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper):
             if explicit:
@@ -269,13 +283,12 @@ def _console(*, stderr: bool) -> Console:
     piped = not is_tty(sys.stderr if stderr else sys.stdout)
     legacy_windows = False if sys.platform == "win32" and piped else None
     settings: dict[str, Any] = {}
-    forced = os.environ.get("FORCE_COLOR")
-    if piped and forced and os.environ.get("TTY_COMPATIBLE") not in {"0", "1"}:
-        probe = Console(force_terminal=True, legacy_windows=legacy_windows)
-        settings = {
-            "force_terminal": False,
-            "color_system": probe.color_system,
-        }
+    if piped and os.environ.get("TTY_COMPATIBLE") not in {"0", "1"}:
+        # Rich asks `isatty`, which says yes for the Windows null device
+        settings = {"force_terminal": False}
+        if os.environ.get("FORCE_COLOR"):
+            probe = Console(force_terminal=True, legacy_windows=legacy_windows)
+            settings["color_system"] = probe.color_system
     return Console(
         stderr=stderr,
         markup=False,
@@ -290,7 +303,9 @@ def is_tty(stream: TextIO | None) -> bool:
     """Check whether a standard stream is a terminal.
 
     NOTE: A standard stream is None under `pythonw`, & a replacement stream
-    may lack `isatty`.
+    may lack `isatty`. On Windows `isatty` is True for any character
+    device, so for `> NUL` & Git Bash's `< /dev/null` too: the console
+    itself is asked.
 
     Args:
         stream: The stream, e.g. `sys.stdin`.
@@ -298,7 +313,36 @@ def is_tty(stream: TextIO | None) -> bool:
     Returns:
         Whether the stream is a terminal.
     """
-    return stream is not None and hasattr(stream, "isatty") and stream.isatty()
+    if stream is None or not hasattr(stream, "isatty") or not stream.isatty():
+        return False
+    return _is_console(stream)
+
+
+if sys.platform == "win32":
+
+    def _is_console(stream: TextIO) -> bool:
+        """Check whether a Windows stream that `isatty` is a console.
+
+        NOTE: `ctypes` is imported here, so only for a stream that claims
+        to be a terminal. A stream without a descriptor is a replacement,
+        which is believed.
+        """
+        import ctypes  # noqa: PLC0415
+        import msvcrt  # noqa: PLC0415
+
+        try:
+            handle = ctypes.c_void_p(msvcrt.get_osfhandle(stream.fileno()))
+        except (OSError, ValueError):
+            return True
+        mode = ctypes.c_ulong()
+        kernel32 = ctypes.windll.kernel32
+        return bool(kernel32.GetConsoleMode(handle, ctypes.byref(mode)))
+
+else:
+
+    def _is_console(stream: TextIO) -> bool:
+        """Return True: off Windows, `isatty` is the whole answer."""
+        return True
 
 
 def package_of(func: object, default: str) -> str:
@@ -352,38 +396,145 @@ def _distribution(package: str) -> str:
     return package
 
 
+def _normalised(name: str) -> str:
+    """Return a distribution name as `dist-info` directories compare it."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _installed_urls(package: str) -> list[str] | None:
+    """Return the `Project-URL` headers of `package`, read from its files.
+
+    NOTE: Root help prints the bug tracker, and importing
+    `importlib.metadata` costs about as much as the rest of `--help`. An
+    installed package sits beside its `NAME-VERSION.dist-info`, so the
+    headers of that `METADATA` are read as text, up to the first blank
+    line. Only a distribution named like the package is found here.
+
+    Args:
+        package: The import package name, already imported.
+
+    Returns:
+        The header values, or None when no `METADATA` is found beside the
+        package: an editable install, a zip or a differently named
+        distribution, which `importlib.metadata` resolves.
+    """
+    origin = getattr(sys.modules.get(package), "__file__", None)
+    if not origin:
+        return None
+    module = Path(origin)
+    site = module.parent
+    if module.stem == "__init__":
+        site = site.parent
+    try:
+        infos = [
+            entry.name
+            for entry in os.scandir(site)
+            if entry.name.endswith(".dist-info")
+            and _normalised(entry.name.partition("-")[0])
+            == _normalised(package)
+        ]
+        if len(infos) != 1:
+            return None
+        text = (site / infos[0] / "METADATA").read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError:
+        return None
+    urls: list[str] = []
+    folding = False
+    for line in text.splitlines():
+        if not line.strip():
+            break
+        if line[0] in " \t":
+            if folding:
+                urls[-1] += line.strip()
+            continue
+        name, _, value = line.partition(":")
+        folding = name.lower() == "project-url"
+        if folding:
+            urls.append(value.strip())
+    return urls
+
+
 def _project_url(package: str) -> str | None:
     """Return the bug tracker `Project-URL` of the `package` distribution."""
-    from importlib import metadata
+    entries = _installed_urls(package)
+    if entries is None:
+        from importlib import metadata
 
-    try:
-        dist = metadata.metadata(_distribution(package))
-    except metadata.PackageNotFoundError:
-        return None
-    for entry in dist.get_all("Project-URL") or []:
+        try:
+            dist = metadata.metadata(_distribution(package))
+        except metadata.PackageNotFoundError:
+            return None
+        entries = dist.get_all("Project-URL") or []
+    for entry in entries:
         label, _, url = entry.partition(",")
         if re.sub(r"[^a-z0-9]", "", label.lower()) in _ISSUE_LABELS:
             return str(url).strip()
     return None
 
 
-def bug_hint(prog: str, package: str) -> str | None:
-    """Return the line printed after an unexpected error.
+_REPORT_FIELDS = {
+    "github.com": ("/issues", "title", "body"),
+    "gitlab.com": ("/issues", "issue[title]", "issue[description]"),
+}
+"""Per host: the tracker path's ending & the new-issue query fields."""
+
+
+def bug_hint(
+    prog: str, package: str, error: BaseException
+) -> tuple[str, str] | None:
+    """Return the line & the URL printed after an unexpected error.
+
+    NOTE: On github.com & gitlab.com the URL opens a new issue with the
+    title & the environment filled in. It carries the versions, the
+    platform & the exception's type only - never its message, the
+    arguments, a path or the environment, which may hold secrets & would
+    be sent to the tracker's host on a click. Any other tracker is linked
+    as it is.
 
     Args:
         prog: The program name, e.g. `dkais`.
         package: The application package.
+        error: The unexpected exception.
 
     Returns:
-        The hint, or None when the distribution names no bug tracker.
+        The hint & the URL for the line after it, or None when the
+        distribution names no bug tracker.
     """
     url = _project_url(package)
     if url is None:
         return None
-    return (
-        f"This is a bug in {prog} {version(package)} - please report it at "
-        f"{url}, with the output above."
+    import platform
+    from urllib import parse
+
+    release = f"{prog} {version(package)}"
+    kind = type(error).__name__
+    tracker = parse.urlsplit(url)
+    ending, title, body = _REPORT_FIELDS.get(
+        (tracker.hostname or "").lower(), ("", "", "")
     )
+    path = tracker.path.rstrip("/")
+    if ending and path.endswith(ending) and not tracker.query:
+        python = platform.python_version()
+        lines = (
+            f"Program: {release}",
+            f"pyclig: {version('pyclig')}",
+            f"Python: {python} ({platform.python_implementation()})",
+            f"Platform: {platform.system()} {platform.release()}",
+            f"Error: unexpected {kind}",
+            "",
+            "(paste the output above)",
+        )
+        query = parse.urlencode(
+            {title: f"{release}: unexpected {kind}", body: "\n".join(lines)},
+            quote_via=parse.quote,
+        )
+        url = parse.urlunsplit(
+            tracker._replace(path=f"{path}/new", query=query)
+        )
+    ask = "please report it, with the output above:"
+    return f"This is a bug in {release} - {ask}", url
 
 
 def execute(func: Callable[[], object], state: State, *, prog: str) -> int:
@@ -435,11 +586,13 @@ def _execute(func: Callable[[], object], state: State, *, prog: str) -> int:
 
 def _report_usage_error(err: Console, error: click.UsageError) -> None:
     """Print a usage error - message, the failing command's usage & a hint."""
-    notice(err, level="error", message=error.format_message())
+    message = click.unstyle(error.format_message())
+    notice(err, level="error", message=message)
     ctx = error.ctx
     if ctx is None:
         return
-    _plain(err, f"\n{ctx.get_usage()}\n")
+    # Printed as Rich `Text`, which would show click's bold codes literally
+    _plain(err, f"\n{click.unstyle(ctx.get_usage())}\n")
     pointer = help_hint(ctx)
     if pointer:
         hint(err, message=pointer)
@@ -519,9 +672,10 @@ def _failed(error: Exception, state: State, prog: str) -> int:
         level="error",
         message=f"{message}: {detail}" if detail else message,
     )
-    report = bug_hint(prog, state.package)
+    report = bug_hint(prog, state.package, error)
     if report:
-        hint(state.err, message=report)
+        hint(state.err, message=report[0])
+        _plain(state.err, report[1])  # never wrapped, so it stays a link
     written = _logging.log_failure(state.package, error)
     if written:
         hint(state.err, message=f"debug log: {written}")

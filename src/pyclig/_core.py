@@ -29,6 +29,7 @@ from typing import (
 )
 
 import click
+from click.core import ParameterSource
 from rich.console import Console
 
 from pyclig import _config, _flags, _logging, _output, _run, _signals
@@ -42,8 +43,41 @@ P = ParamSpec("P")
 R = TypeVar("R")
 
 
+def _styled(console: Console) -> bool:
+    """Return whether a console's stream renders ANSI styles such as bold."""
+    return console.color_system is not None and not console.legacy_windows
+
+
+def _color(ctx: click.Context, *, err: bool = False) -> bool | None:
+    """Return click's `color=` for help written to STDOUT or STDERR.
+
+    Args:
+        ctx: The command's context.
+        err: Whether the help goes to STDERR.
+
+    Returns:
+        True where the stream's console is styled, else click's default.
+    """
+    state = _run.state_of(ctx)
+    if err and state is not None:
+        return True if _styled(state.err) else None
+    return ctx.color
+
+
 class HelpFormatter(click.HelpFormatter):
-    """Help with `USAGE:` on its own line & upper-case section headings."""
+    """Help with `USAGE:` on its own line & upper-case section headings.
+
+    Attributes:
+        bold: Write the headings in bold, which `Context.make_formatter`
+            sets where the run's console is styled.
+    """
+
+    bold = False
+
+    def _heading(self, heading: str) -> str:
+        """Return a heading line, bold when the formatter is."""
+        text = click.style(heading, bold=True) if self.bold else heading
+        return f"{'':>{self.current_indent}}{text}\n"
 
     def write_usage(
         self, prog: str, args: str = "", prefix: str | None = None
@@ -55,7 +89,7 @@ class HelpFormatter(click.HelpFormatter):
             args: The usage pieces after it.
             prefix: The heading, defaulting to `USAGE:`.
         """
-        self.write(f"{'':>{self.current_indent}}{prefix or 'USAGE:'}\n")
+        self.write(self._heading(prefix or "USAGE:"))
         with self.indentation():
             super().write_usage(prog, args, prefix="")
 
@@ -65,7 +99,7 @@ class HelpFormatter(click.HelpFormatter):
         Args:
             heading: The heading.
         """
-        super().write_heading(heading.upper())
+        self.write(self._heading(f"{heading.upper()}:"))
 
 
 class Context(click.Context):
@@ -74,7 +108,9 @@ class Context(click.Context):
     NOTE: The consoles live in `ctx.meta`, which every context of a run
     shares, so `ctx.obj` stays free for the application. A root context
     takes `-h` & `--help` as its help option names unless given others;
-    subcontexts inherit their parent's, as in click.
+    subcontexts inherit their parent's, as in click. Its `color` is True
+    where the STDOUT console is styled, unless given: help headings are
+    then bold & `click.echo` keeps styles; otherwise click decides.
     """
 
     formatter_class = HelpFormatter
@@ -98,6 +134,26 @@ class Context(click.Context):
         super().__init__(*args, **kwargs)
         if pyclig_state is not None:
             self.meta[_run.STATE_KEY] = pyclig_state
+            if parent is None and self.color is None:
+                self.color = True if _styled(pyclig_state.out) else None
+
+    def make_formatter(self, *, err: bool = False) -> click.HelpFormatter:
+        """Create the help formatter, bold where its stream is styled.
+
+        Args:
+            err: Whether the help goes to STDERR, whose console may be
+                styled when the STDOUT one is not.
+
+        Returns:
+            The formatter.
+        """
+        formatter = super().make_formatter()
+        if isinstance(formatter, HelpFormatter):
+            formatter.bold = bool(_color(self, err=err))
+        return formatter
+
+    _deprecation: bool | str = False
+    """The `deprecated` of a command that `Command.invoke` is announcing."""
 
     def invoke(self, *args: Any, **kwargs: Any) -> Any:
         """Invoke a callback, raising a deferred config file error first.
@@ -115,6 +171,8 @@ class Context(click.Context):
         Returns:
             The callback's return value.
         """
+        if self._deprecation:
+            self.command.deprecated = self._deprecation
         state = _run.state_of(self)
         if state is not None and state.config_error is not None:
             if (
@@ -493,9 +551,148 @@ def _prompt(
         return prompt(ctx)
 
 
+_CONCISE_OPTIONS = 6
+"""The most options of its own a command lists in its concise help."""
+
+
+def _names_stdin(value: object) -> bool:
+    """Return whether a raw value, or any value nested in it, is `-`."""
+    if isinstance(value, (tuple, list)):
+        return any(_names_stdin(item) for item in value)
+    return value == "-"
+
+
+def _piped(
+    param: click.Parameter,
+    cast: Callable[[click.Context, Any], Any],
+    ctx: click.Context,
+    value: Any,
+) -> Any:
+    """Convert the value of a file to read, refusing `-` on a terminal.
+
+    NOTE: click would open the terminal & the command would sit waiting
+    for typed input with nothing on screen. Checked before the file is
+    opened, whether `-` was given or is the default; never while
+    completing.
+
+    Args:
+        param: The parameter whose type is a read-mode `click.File`.
+        cast: click's `type_cast_value`, bound to `param`.
+        ctx: The command's context.
+        value: The raw value, or a tuple of them.
+
+    Returns:
+        The opened file or files.
+
+    Raises:
+        click.BadParameter: When `-` is asked for & STDIN is a terminal.
+    """
+    if (
+        not ctx.resilient_parsing
+        and _names_stdin(value)
+        and _run.stdin_is_tty(ctx)
+    ):
+        raise click.BadParameter(
+            "STDIN is a terminal - pipe the input in or name a file",
+            ctx=ctx,
+            param=param,
+        )
+    return cast(ctx, value)
+
+
+def _deprecated(kind: str, name: str, reason: bool | str) -> str:
+    """Return the warning for a deprecated command or parameter in use."""
+    suffix = f" - {reason}" if isinstance(reason, str) else ""
+    return f"{kind} {name} is deprecated{suffix}"
+
+
+def _announced(
+    param: click.Parameter,
+    handle: Callable[..., tuple[Any, list[str]]],
+    ctx: click.Context,
+    opts: Mapping[str, Any],
+    args: list[str],
+) -> tuple[Any, list[str]]:
+    """Process a deprecated parameter, warning in pyclig's style when given.
+
+    NOTE: click prints a red `DeprecationWarning:` line in the middle of
+    `handle_parse_result`, so `deprecated` is down for that one call; a
+    parameter's help & metavar are not rendered inside it. Given means
+    what it does to click: on the command line or from the environment.
+    Nothing is printed while completing; outside a run click's own line
+    stays.
+
+    Args:
+        param: The deprecated parameter.
+        handle: click's `handle_parse_result`, bound to `param`.
+        ctx: The command's context.
+        opts: The parsed options.
+        args: The remaining arguments.
+
+    Returns:
+        The value & the remaining arguments.
+    """
+    state = _run.state_of(ctx)
+    reason = param.deprecated
+    if not reason or (state is None and not ctx.resilient_parsing):
+        return handle(ctx, opts, args)
+    param.deprecated = False
+    try:
+        result = handle(ctx, opts, args)
+    finally:
+        param.deprecated = reason
+    source = ctx.get_parameter_source(param.name or "")
+    given = source is not None and source < ParameterSource.DEFAULT_MAP
+    if state is not None and given and not ctx.resilient_parsing:
+        if isinstance(param, click.Option):
+            name = param.get_error_hint(ctx)
+        else:
+            name = repr(param.human_readable_name)
+        message = _deprecated(param.param_type_name, name, reason)
+        _output.notice(state.err, level="warning", message=message)
+    return result
+
+
+def _by_declarer(
+    ctx: click.Context, params: Sequence[click.Parameter]
+) -> dict[str, list[click.Parameter]]:
+    """Group inherited global options by the command whose help lists them.
+
+    Args:
+        ctx: The context of the command showing its help.
+        params: The global options the command does not declare itself.
+
+    Returns:
+        The options by command path, the root first: an option belongs to
+        the nearest ancestor declaring its name, a run flag to the root.
+    """
+    root = ctx.find_root().command_path
+    declarer: dict[str | None, str] = {}
+    parent = ctx.parent
+    while parent is not None:
+        for param in parent.command.params:
+            if isinstance(param, GlobalOption):
+                declarer.setdefault(param.name, parent.command_path)
+        parent = parent.parent
+    grouped: dict[str, list[click.Parameter]] = {root: []}
+    for param in params:
+        grouped.setdefault(declarer.get(param.name, root), []).append(param)
+    return {path: found for path, found in grouped.items() if found}
+
+
 def _show_version(ctx: click.Context) -> str:
     """Return the `-v/--version` line, e.g. `dkais 0.1.0`."""
     return f"{ctx.find_root().info_name} {_run.version(_package(ctx))}"
+
+
+def _print_version(
+    ctx: click.Context, param: click.Parameter, value: bool
+) -> None:
+    """Print the version line & exit 0, except while completing."""
+    if ctx.resilient_parsing:
+        return
+    click.echo(_show_version(ctx), color=ctx.color)
+    ctx.exit()
 
 
 def _help_if_asked(ctx: click.Context, args: Sequence[str]) -> None:
@@ -525,14 +722,19 @@ class Command(click.Command):
     help & completion all see them; a command's own option with the same
     spelling wins. An option with `prompt=` prompts on STDERR; when the run
     cannot prompt it takes its default, or fails naming itself without
-    one. Usage errors raised while
+    one. A `click.File` to read refuses `-` while STDIN is a terminal,
+    instead of waiting for typed input. A `deprecated=` command or
+    parameter in use prints one `warning:` line on STDERR, in place of
+    click's `DeprecationWarning:`. Usage errors raised while
     parsing are bound to this command, so they show its usage. `main` runs
     the command with fresh consoles & logging; `errors` is read from the
     command `main` is called on.
 
     Attributes:
-        examples: Example invocations, listed under `EXAMPLES:`.
+        examples: Example invocations, listed under `EXAMPLES:`; lines
+            after an example's first are shown as its output.
         errors: Expected exception types, reported without a traceback.
+        docs: The web documentation's URL, listed under `LEARN MORE:`.
     """
 
     context_class = Context
@@ -544,6 +746,7 @@ class Command(click.Command):
         examples: Iterable[str] = (),
         errors: _run.Errors = (),
         config: _config.Config | None = None,
+        docs: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Create the command.
@@ -556,6 +759,8 @@ class Command(click.Command):
                 Only the root command's are read.
             config: The configuration files to read, adding `--config` (&
                 `--profile`) as the first options. Root command only.
+            docs: The URL of this command's web documentation, shown as
+                the last line of its full help.
             **kwargs: Keyword `click.Command` arguments;
                 `options_metavar` defaults to `[options]`.
         """
@@ -564,9 +769,18 @@ class Command(click.Command):
         self.examples = tuple(examples)
         self.errors = errors
         self.config = config
+        self.docs = docs
         if config is not None:
             self.params[:0] = _config.options(config)
         for param in self.params:
+            if param.deprecated:
+                announced = functools.partial(
+                    _announced, param, param.handle_parse_result
+                )
+                setattr(param, "handle_parse_result", announced)
+            if isinstance(param.type, click.File) and "r" in param.type.mode:
+                piped = functools.partial(_piped, param, param.type_cast_value)
+                setattr(param, "type_cast_value", piped)
             if not isinstance(param, click.Option):
                 continue
             if param.prompt is not None:
@@ -609,7 +823,8 @@ class Command(click.Command):
             The arguments left over for a subcommand.
         """
         if not args and self.no_args_is_help and not ctx.resilient_parsing:
-            click.echo(self.get_concise_help(ctx), err=True)
+            concise = self.get_concise_help(ctx, err=True)
+            click.echo(concise, err=True, color=_color(ctx, err=True))
             ctx.exit(ExitCode.USAGE)
         given = list(args)
         try:
@@ -638,11 +853,38 @@ class Command(click.Command):
         self.format_arguments(ctx, formatter)
         self.format_options(ctx, formatter)
         self.format_epilog(ctx, formatter)
+        self.format_learn_more(ctx, formatter)
+
+    def format_learn_more(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the `LEARN MORE:` section: where to read on & report bugs.
+
+        NOTE: `Docs` is the command's own `docs=`. `Issues` is the bug
+        tracker in the distribution's metadata, read for the root's full
+        help only - never for concise help, nor at import.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        links = [("Docs", self.docs)] if self.docs else []
+        if ctx.parent is None:
+            issues = _run._project_url(_package(ctx))
+            if issues:
+                links.append(("Issues", issues))
+        if links:
+            with formatter.section("Learn more"):
+                formatter.write_dl(links)
 
     def format_examples(
         self, ctx: click.Context, formatter: click.HelpFormatter
     ) -> None:
         """Write the `EXAMPLES:` section, one invocation per line.
+
+        NOTE: The lines after the first of an example are its output,
+        indented two more spaces. Once any example has output a blank line
+        parts them all; one-line examples alone are listed as they were.
 
         Args:
             ctx: The command's context.
@@ -650,9 +892,16 @@ class Command(click.Command):
         """
         if not self.examples:
             return
+        blocks = [example.splitlines() or [""] for example in self.examples]
+        spaced = any(len(lines) > 1 for lines in blocks)
         with formatter.section("Examples"):
-            for example in self.examples:
-                formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
+            indent = " " * formatter.current_indent
+            for index, (invocation, *output) in enumerate(blocks):
+                if spaced and index:
+                    formatter.write("\n")
+                formatter.write(f"{indent}{invocation}\n")
+                for line in output:
+                    formatter.write(f"{indent}  {line}\n" if line else "\n")
 
     def format_options(
         self, ctx: click.Context, formatter: click.HelpFormatter
@@ -661,7 +910,8 @@ class Command(click.Command):
 
         NOTE: The root (or a standalone command) lists its global options in
         full. A subcommand lists those it declares itself in full & the rest
-        on one line, pointing at the root's help.
+        in a sentence pointing at the help that lists them: the root's, or
+        that of the nested group declaring them.
 
         Args:
             ctx: The command's context.
@@ -687,21 +937,27 @@ class Command(click.Command):
             with formatter.section("Global options"):
                 if full:
                     formatter.write_dl(full)
-                if brief:
-                    names = ", ".join("/".join(p.opts) for p in brief)
-                    root = ctx.find_root().command_path
-                    formatter.write_text(f"{names} - see '{root} --help'.")
+                for path, params in _by_declarer(ctx, brief).items():
+                    names = ", ".join("/".join(p.opts) for p in params)
+                    formatter.write_text(f"{names} - see '{path} --help'.")
 
-    def get_concise_help(self, ctx: click.Context) -> str:
+    def get_concise_help(
+        self, ctx: click.Context, *, err: bool = False
+    ) -> str:
         """Return the concise help, printed when a command needs arguments.
 
         Args:
             ctx: The command's context.
+            err: Whether it goes to STDERR, so its headings follow that
+                console's styling.
 
         Returns:
             The help without its options, ending with a `--help` hint.
         """
-        formatter = ctx.make_formatter()
+        if isinstance(ctx, Context):
+            formatter = ctx.make_formatter(err=err)
+        else:
+            formatter = ctx.make_formatter()
         self.format_concise_help(ctx, formatter)
         hint = _run.help_hint(ctx)
         if hint:
@@ -712,7 +968,7 @@ class Command(click.Command):
     def format_concise_help(
         self, ctx: click.Context, formatter: click.HelpFormatter
     ) -> None:
-        """Write the concise help: usage, description & examples.
+        """Write the concise help: usage, description, examples & options.
 
         Args:
             ctx: The command's context.
@@ -721,6 +977,31 @@ class Command(click.Command):
         self.format_usage(ctx, formatter)
         self.format_help_text(ctx, formatter)
         self.format_examples(ctx, formatter)
+        self.format_concise_options(ctx, formatter)
+
+    def format_concise_options(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write `OPTIONS:` when the command has only a few of its own.
+
+        NOTE: The guidelines ask concise help for the most common flags; a
+        short list is all of them, a long one is left to `--help`. Global
+        options, hidden ones & `--help` itself are never listed.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        records = [
+            record
+            for param in self.params
+            if isinstance(param, click.Option)
+            and not isinstance(param, GlobalOption)
+            and (record := param.get_help_record(ctx)) is not None
+        ]
+        if 0 < len(records) <= _CONCISE_OPTIONS:
+            with formatter.section("Options"):
+                formatter.write_dl(records)
 
     def main(
         self,
@@ -803,6 +1084,20 @@ class Command(click.Command):
             Interrupted: On Ctrl-C.
             Escaped: Carrying an `EOFError` or a pipe `OSError`.
         """
+        state = _run.state_of(ctx)
+        reason = self.deprecated if state is not None else False
+        if state is not None and reason:
+            # click would print a red `DeprecationWarning:` line: the flag
+            # is down only until `Context.invoke` reaches the callback,
+            # which may render help that reads it
+            _output.notice(
+                state.err,
+                level="warning",
+                message=_deprecated("command", repr(self.name), reason),
+            )
+            self.deprecated = False
+            if isinstance(ctx, Context):
+                ctx._deprecation = reason
         try:
             return super().invoke(ctx)
         except KeyboardInterrupt as error:
@@ -813,6 +1108,9 @@ class Command(click.Command):
             if error.errno in _run.PIPE_ERRNOS:
                 raise _run.Escaped(error) from error
             raise
+        finally:
+            if reason:
+                self.deprecated = reason
 
 
 class Group(Command, click.Group):
@@ -843,7 +1141,7 @@ class Group(Command, click.Group):
                 concise help.
             subcommand_metavar: The command placeholder in the usage line.
             **kwargs: Keyword `Command` & `click.Group` arguments, e.g.
-                `examples`, `errors` & `context_settings`.
+                `examples`, `errors`, `docs` & `context_settings`.
         """
         super().__init__(
             name,
@@ -903,7 +1201,7 @@ class Group(Command, click.Group):
         """
         result = super().invoke(ctx)
         if ctx.invoked_subcommand is None:
-            click.echo(self.get_concise_help(ctx))
+            click.echo(self.get_concise_help(ctx), color=ctx.color)
         return result
 
     def format_options(
@@ -939,6 +1237,7 @@ class Group(Command, click.Group):
         self.format_usage(ctx, formatter)
         self.format_commands(ctx, formatter)
         self.format_examples(ctx, formatter)
+        self.format_concise_options(ctx, formatter)
 
     def resolve_command(
         self, ctx: click.Context, args: list[str]
@@ -1008,6 +1307,7 @@ def command(
     examples: Iterable[str] = (),
     errors: _run.Errors = (),
     config: _config.Config | None = None,
+    docs: str | None = None,
     **kwargs: Any,
 ) -> Callable[[Callable[..., Any]], Command]:
     """Create a standalone `pyclig.Command` with `-v/--version`.
@@ -1022,6 +1322,8 @@ def command(
             exit 1 - the traceback is shown only with `-d`.
         config: The configuration files to read, adding `--config` (&
             `--profile` with `profiles=True`).
+        docs: The URL of the web documentation, listed under `LEARN MORE:`
+            at the end of the full help.
         **kwargs: Keyword `click.Command` arguments, e.g. `epilog`.
 
     Returns:
@@ -1035,6 +1337,7 @@ def command(
             examples=examples,
             errors=errors,
             config=config,
+            docs=docs,
             **kwargs,
         )(_versioned(f))
 
@@ -1044,17 +1347,22 @@ def command(
 def _versioned(f: Callable[..., Any]) -> Callable[..., Any]:
     """Add `-v/--version` to a command function, minus names its options take.
 
-    NOTE: An app's own spelling wins, as for the run flags: `-v/--verbose`
-    keeps `--version` alone, and an app's own `--version` leaves nothing.
+    NOTE: A `GlobalOption`, so `prog show -v` prints the version too. An
+    app's own spelling wins, as for the run flags: `-v/--verbose` keeps
+    `--version` alone, and an app's own `--version` leaves nothing.
     """
     params = getattr(f, "__click_params__", [])
     taken = {name for p in params for name in (*p.opts, *p.secondary_opts)}
     names = [name for name in ("-v", "--version") if name not in taken]
     if not names:
         return f
-    return click.custom_version_option(
-        _show_version, *names, help="Show the version and exit."
-    )(f)
+    option = GlobalOption(
+        names, callback=_print_version, help="Show the version and exit."
+    )
+    # click reverses the list, so first here is last of the command's own:
+    # help reads the app's global options, the version, then the run flags
+    setattr(f, "__click_params__", [option, *params])
+    return f
 
 
 def run(
@@ -1107,6 +1415,7 @@ def group(
     examples: Iterable[str] = (),
     errors: _run.Errors = (),
     config: _config.Config | None = None,
+    docs: str | None = None,
     **kwargs: Any,
 ) -> Callable[[Callable[..., Any]], Group]:
     """Create a `pyclig.Group` with `-v/--version` from a function.
@@ -1129,6 +1438,8 @@ def group(
             exit 1 - the traceback is shown only with `-d`.
         config: The configuration files to read, adding `--config` (&
             `--profile` with `profiles=True`) to every command.
+        docs: The URL of the web documentation, listed under `LEARN MORE:`
+            at the end of the full help.
         **kwargs: Keyword `click.Group` arguments, e.g. `short_help` (the
             concise help summary) & `epilog`.
 
@@ -1143,6 +1454,7 @@ def group(
             examples=examples,
             errors=errors,
             config=config,
+            docs=docs,
             **kwargs,
         )(_versioned(f))
 
