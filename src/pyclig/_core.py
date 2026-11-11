@@ -498,6 +498,16 @@ def _show_version(ctx: click.Context) -> str:
     return f"{ctx.find_root().info_name} {_run.version(_package(ctx))}"
 
 
+def _print_version(
+    ctx: click.Context, param: click.Parameter, value: bool
+) -> None:
+    """Print the version line & exit 0, except while completing."""
+    if ctx.resilient_parsing:
+        return
+    click.echo(_show_version(ctx), color=ctx.color)
+    ctx.exit()
+
+
 def _help_if_asked(ctx: click.Context, args: Sequence[str]) -> None:
     """Show the help & exit 0 when a help flag appears before any `--`.
 
@@ -1044,17 +1054,22 @@ def command(
 def _versioned(f: Callable[..., Any]) -> Callable[..., Any]:
     """Add `-v/--version` to a command function, minus names its options take.
 
-    NOTE: An app's own spelling wins, as for the run flags: `-v/--verbose`
-    keeps `--version` alone, and an app's own `--version` leaves nothing.
+    NOTE: A `GlobalOption`, so `prog show -v` prints the version too. An
+    app's own spelling wins, as for the run flags: `-v/--verbose` keeps
+    `--version` alone, and an app's own `--version` leaves nothing.
     """
     params = getattr(f, "__click_params__", [])
     taken = {name for p in params for name in (*p.opts, *p.secondary_opts)}
     names = [name for name in ("-v", "--version") if name not in taken]
     if not names:
         return f
-    return click.custom_version_option(
-        _show_version, *names, help="Show the version and exit."
-    )(f)
+    option = GlobalOption(
+        names, callback=_print_version, help="Show the version and exit."
+    )
+    # click reverses the list, so first here is last of the command's own:
+    # help reads the app's global options, the version, then the run flags
+    setattr(f, "__click_params__", [option, *params])
+    return f
 
 
 def run(

@@ -375,7 +375,7 @@ def test_help_lists_config_options(dirs: Dirs) -> None:
     assert "TESTS_CONFIG]" in text
     assert "--profile NAME" in text
     assert "TESTS_PROFILE]" in text
-    assert "--config, --profile, --region, -d/--debug" in (
+    assert "--config, --profile, --region, -v/--version, -d/--debug" in (
         run(dirs, ["show", "--help"]).stdout
     )
 

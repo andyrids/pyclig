@@ -125,7 +125,8 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
     assert "--audit" not in options
     globals_ = _section(help_text, "GLOBAL OPTIONS:")
     assert globals_[0].startswith("  --audit ")
-    assert globals_[1].startswith("  -d, --debug ")
+    assert globals_[1].startswith("  -v, --version ")
+    assert globals_[2].startswith("  -d, --debug ")
 
 
 @pytest.mark.parametrize(
@@ -134,15 +135,15 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
         (
             "list",
             (
-                "  --audit, -d/--debug, -q/--quiet, --no-color, --no-input - "
-                "see 'sample --help'."
+                "--audit, -v/--version, -d/--debug, -q/--quiet, --no-color, "
+                "--no-input - see 'sample --help'."
             ),
         ),
         (
             "copy",
             (
-                "  --audit, --debug, -q/--quiet, --no-color, --no-input - "
-                "see 'sample --help'."
+                "--audit, -v/--version, --debug, -q/--quiet, --no-color, "
+                "--no-input - see 'sample --help'."
             ),
         ),
     ],
@@ -150,9 +151,10 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
 def test_global_options_one_line_on_subcommands(
     sample: Group, command: str, line: str
 ) -> None:
-    """Assert a subcommand's `GLOBAL OPTIONS:` is one line naming the flags."""
+    """Assert a subcommand's `GLOBAL OPTIONS:` names the flags briefly."""
     help_text = invoke(sample, [command, "--help"]).stdout
-    assert _section(help_text, "GLOBAL OPTIONS:") == [line]
+    section = _section(help_text, "GLOBAL OPTIONS:")
+    assert " ".join(part.strip() for part in section) == line
     assert "-d, --debug" not in help_text
 
 
@@ -343,7 +345,8 @@ def test_value_global_option_help(regional: Group) -> None:
         in invoke(regional, ["--help"]).stdout
     )
     assert (
-        "--region, -d/--debug" in invoke(regional, ["where", "--help"]).stdout
+        "--region, -v/--version, -d/--debug"
+        in invoke(regional, ["where", "--help"]).stdout
     )
 
 
@@ -441,6 +444,50 @@ def test_standalone_command_short_help() -> None:
 def test_command_decorator_adds_version() -> None:
     """Assert `pyclig.command()` adds `-v/--version`."""
     assert invoke(tool, ["-v"]).stdout == "tool 0.0.0+unknown\n"
+
+
+def test_version_after_a_subcommand(sample: Group) -> None:
+    """Assert `-v/--version` is global: `prog show -v` prints the version."""
+    for args in (["list", "-v"], ["grp", "leaf", "--version"]):
+        result = invoke(sample, args)
+        assert result.exit_code == 0
+        assert result.stdout == "sample 0.0.0+unknown\n"
+        assert result.stderr == ""
+
+
+def test_version_is_a_global_option_in_help(sample: Group) -> None:
+    """Assert the root lists `-v/--version` under `GLOBAL OPTIONS:`."""
+    help_text = invoke(sample, ["--help"]).stdout
+    assert "--version" not in "\n".join(_section(help_text, "OPTIONS:"))
+    globals_ = "\n".join(_section(help_text, "GLOBAL OPTIONS:"))
+    assert "  -v, --version " in globals_
+
+
+def test_version_does_nothing_under_resilient_parsing(
+    sample: Group, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Assert completion can parse `-v` without printing or exiting."""
+    for args in (["-v"], ["list", "-v"]):
+        with sample.make_context("sample", args, resilient_parsing=True):
+            pass
+    assert capsys.readouterr().out == ""
+
+
+def test_subcommand_verbose_wins_over_version_short() -> None:
+    """Assert a subcommand's own `-v` reaches it; `--version` still works."""
+
+    @pyclig.group("tool", examples=["tool show"])
+    def cli() -> None:
+        """Group commands."""
+
+    @cli.command(examples=["tool show -v"])
+    @click.option("-v", "--verbose", is_flag=True, help="Say more.")
+    def show(verbose: bool) -> None:
+        """Show things."""
+        click.echo(f"verbose={verbose}")
+
+    assert invoke(cli, ["show", "-v"]).stdout == "verbose=True\n"
+    assert invoke(cli, ["show", "--version"]).stdout == "tool 0.0.0+unknown\n"
 
 
 def test_app_verbose_wins_over_version_short() -> None:
