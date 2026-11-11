@@ -1842,7 +1842,9 @@ def test_learn_more_on_a_subcommand_is_its_own_docs() -> None:
     """Assert a subcommand shows its `docs=` & never the bug tracker."""
     with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
         result = invoke(learn_cli, ["more", "--help"])
-        assert "LEARN MORE:" not in invoke(learn_cli, ["less", "--help"]).stdout
+        assert (
+            "LEARN MORE:" not in invoke(learn_cli, ["less", "--help"]).stdout
+        )
     assert result.stdout.endswith(
         "\nLEARN MORE:\n  Docs  https://example.com/learn/more\n"
     )
@@ -1908,4 +1910,6 @@ def test_multi_line_example_shows_its_output() -> None:
 def test_single_line_examples_are_unchanged() -> None:
     """Assert one-line examples stay one per line, with nothing between."""
     help_text = invoke(ex_cli, ["single", "--help"]).stdout
-    assert "EXAMPLES:\n  ex single --count\n  ex single --json\n\n" in help_text
+    assert (
+        "EXAMPLES:\n  ex single --count\n  ex single --json\n\n" in help_text
+    )
