@@ -654,6 +654,7 @@ class Command(click.Command):
     Attributes:
         examples: Example invocations, listed under `EXAMPLES:`.
         errors: Expected exception types, reported without a traceback.
+        docs: The web documentation's URL, listed under `LEARN MORE:`.
     """
 
     context_class = Context
@@ -665,6 +666,7 @@ class Command(click.Command):
         examples: Iterable[str] = (),
         errors: _run.Errors = (),
         config: _config.Config | None = None,
+        docs: str | None = None,
         **kwargs: Any,
     ) -> None:
         """Create the command.
@@ -677,6 +679,8 @@ class Command(click.Command):
                 Only the root command's are read.
             config: The configuration files to read, adding `--config` (&
                 `--profile`) as the first options. Root command only.
+            docs: The URL of this command's web documentation, shown as
+                the last line of its full help.
             **kwargs: Keyword `click.Command` arguments;
                 `options_metavar` defaults to `[options]`.
         """
@@ -685,6 +689,7 @@ class Command(click.Command):
         self.examples = tuple(examples)
         self.errors = errors
         self.config = config
+        self.docs = docs
         if config is not None:
             self.params[:0] = _config.options(config)
         for param in self.params:
@@ -767,6 +772,29 @@ class Command(click.Command):
         self.format_arguments(ctx, formatter)
         self.format_options(ctx, formatter)
         self.format_epilog(ctx, formatter)
+        self.format_learn_more(ctx, formatter)
+
+    def format_learn_more(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write the `LEARN MORE:` section: where to read on & report bugs.
+
+        NOTE: `Docs` is the command's own `docs=`. `Issues` is the bug
+        tracker in the distribution's metadata, read for the root's full
+        help only - never for concise help, nor at import.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        links = [("Docs", self.docs)] if self.docs else []
+        if ctx.parent is None:
+            issues = _run._project_url(_package(ctx))
+            if issues:
+                links.append(("Issues", issues))
+        if links:
+            with formatter.section("Learn more"):
+                formatter.write_dl(links)
 
     def format_examples(
         self, ctx: click.Context, formatter: click.HelpFormatter
@@ -1014,7 +1042,7 @@ class Group(Command, click.Group):
                 concise help.
             subcommand_metavar: The command placeholder in the usage line.
             **kwargs: Keyword `Command` & `click.Group` arguments, e.g.
-                `examples`, `errors` & `context_settings`.
+                `examples`, `errors`, `docs` & `context_settings`.
         """
         super().__init__(
             name,
@@ -1180,6 +1208,7 @@ def command(
     examples: Iterable[str] = (),
     errors: _run.Errors = (),
     config: _config.Config | None = None,
+    docs: str | None = None,
     **kwargs: Any,
 ) -> Callable[[Callable[..., Any]], Command]:
     """Create a standalone `pyclig.Command` with `-v/--version`.
@@ -1194,6 +1223,8 @@ def command(
             exit 1 - the traceback is shown only with `-d`.
         config: The configuration files to read, adding `--config` (&
             `--profile` with `profiles=True`).
+        docs: The URL of the web documentation, listed under `LEARN MORE:`
+            at the end of the full help.
         **kwargs: Keyword `click.Command` arguments, e.g. `epilog`.
 
     Returns:
@@ -1207,6 +1238,7 @@ def command(
             examples=examples,
             errors=errors,
             config=config,
+            docs=docs,
             **kwargs,
         )(_versioned(f))
 
@@ -1284,6 +1316,7 @@ def group(
     examples: Iterable[str] = (),
     errors: _run.Errors = (),
     config: _config.Config | None = None,
+    docs: str | None = None,
     **kwargs: Any,
 ) -> Callable[[Callable[..., Any]], Group]:
     """Create a `pyclig.Group` with `-v/--version` from a function.
@@ -1306,6 +1339,8 @@ def group(
             exit 1 - the traceback is shown only with `-d`.
         config: The configuration files to read, adding `--config` (&
             `--profile` with `profiles=True`) to every command.
+        docs: The URL of the web documentation, listed under `LEARN MORE:`
+            at the end of the full help.
         **kwargs: Keyword `click.Group` arguments, e.g. `short_help` (the
             concise help summary) & `epilog`.
 
@@ -1320,6 +1355,7 @@ def group(
             examples=examples,
             errors=errors,
             config=config,
+            docs=docs,
             **kwargs,
         )(_versioned(f))
 

@@ -1801,3 +1801,59 @@ def test_concise_help_lists_a_few_options(count: int) -> None:
 def test_concise_help_omits_no_or_many_options(count: int) -> None:
     """Assert concise help has no `OPTIONS:` for none or more than 6."""
     assert "OPTIONS:" not in _concise(count)
+
+
+@pyclig.group(
+    "learn",
+    docs="https://example.com/learn",
+    epilog="Good luck.",
+    examples=["learn more"],
+)
+def learn_cli() -> None:
+    """Point at the documentation."""
+
+
+@learn_cli.command(docs="https://example.com/learn/more", no_args_is_help=True)
+@click.argument("topic")
+def more(topic: str) -> None:
+    """Read more about TOPIC."""
+
+
+@learn_cli.command()
+def less() -> None:
+    """Read less."""
+
+
+def test_learn_more_is_the_last_section() -> None:
+    """Assert `docs=` & the bug tracker close the root's full help."""
+    with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
+        result = invoke(learn_cli, ["--help"])
+    assert _headings(result.stdout)[-1] == "LEARN MORE:"
+    assert result.stdout.endswith(
+        "\n  Good luck.\n"
+        "\n"
+        "LEARN MORE:\n"
+        "  Docs    https://example.com/learn\n"
+        "  Issues  https://x.test/bugs\n"
+    )
+
+
+def test_learn_more_on_a_subcommand_is_its_own_docs() -> None:
+    """Assert a subcommand shows its `docs=` & never the bug tracker."""
+    with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
+        result = invoke(learn_cli, ["more", "--help"])
+        assert "LEARN MORE:" not in invoke(learn_cli, ["less", "--help"]).stdout
+    assert result.stdout.endswith(
+        "\nLEARN MORE:\n  Docs  https://example.com/learn/more\n"
+    )
+    assert "Issues" not in result.stdout
+
+
+def test_learn_more_absent_without_links_and_from_concise_help(
+    sample: Group,
+) -> None:
+    """Assert no section without a link, & none in concise help at all."""
+    assert "LEARN MORE:" not in invoke(sample, ["--help"]).stdout
+    with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
+        assert "LEARN MORE:" not in invoke(learn_cli).stdout
+        assert "LEARN MORE:" not in invoke(learn_cli, ["more"]).stderr
