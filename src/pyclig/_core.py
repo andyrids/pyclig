@@ -652,7 +652,8 @@ class Command(click.Command):
     command `main` is called on.
 
     Attributes:
-        examples: Example invocations, listed under `EXAMPLES:`.
+        examples: Example invocations, listed under `EXAMPLES:`; lines
+            after an example's first are shown as its output.
         errors: Expected exception types, reported without a traceback.
         docs: The web documentation's URL, listed under `LEARN MORE:`.
     """
@@ -801,15 +802,26 @@ class Command(click.Command):
     ) -> None:
         """Write the `EXAMPLES:` section, one invocation per line.
 
+        NOTE: The lines after the first of an example are its output,
+        indented two more spaces. Once any example has output a blank line
+        parts them all; one-line examples alone are listed as they were.
+
         Args:
             ctx: The command's context.
             formatter: The help formatter.
         """
         if not self.examples:
             return
+        blocks = [example.splitlines() or [""] for example in self.examples]
+        spaced = any(len(lines) > 1 for lines in blocks)
         with formatter.section("Examples"):
-            for example in self.examples:
-                formatter.write(f"{'':>{formatter.current_indent}}{example}\n")
+            indent = " " * formatter.current_indent
+            for index, (invocation, *output) in enumerate(blocks):
+                if spaced and index:
+                    formatter.write("\n")
+                formatter.write(f"{indent}{invocation}\n")
+                for line in output:
+                    formatter.write(f"{indent}  {line}\n" if line else "\n")
 
     def format_options(
         self, ctx: click.Context, formatter: click.HelpFormatter

@@ -1857,3 +1857,55 @@ def test_learn_more_absent_without_links_and_from_concise_help(
     with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
         assert "LEARN MORE:" not in invoke(learn_cli).stdout
         assert "LEARN MORE:" not in invoke(learn_cli, ["more"]).stderr
+
+
+@pyclig.group("ex")
+def ex_cli() -> None:
+    """Show examples."""
+
+
+@ex_cli.command(
+    examples=[
+        "ex mixed --count\n3 items\n\n1 skipped\n",
+        "ex mixed --json",
+        "ex mixed --all\n4 items",
+    ],
+    no_args_is_help=True,
+)
+@click.argument("item")
+def mixed(item: str) -> None:
+    """Show examples with their output."""
+
+
+@ex_cli.command(examples=["ex single --count", "ex single --json"])
+def single() -> None:
+    """Show examples without output."""
+
+
+def test_multi_line_example_shows_its_output() -> None:
+    """Assert the lines after an invocation are its output, indented more.
+
+    NOTE: Examples are parted by a blank line once any of them has output;
+    a blank line of the output itself carries no trailing spaces.
+    """
+    expected = (
+        "EXAMPLES:\n"
+        "  ex mixed --count\n"
+        "    3 items\n"
+        "\n"
+        "    1 skipped\n"
+        "\n"
+        "  ex mixed --json\n"
+        "\n"
+        "  ex mixed --all\n"
+        "    4 items\n"
+        "\n"
+    )
+    assert expected in invoke(ex_cli, ["mixed", "--help"]).stdout
+    assert expected in invoke(ex_cli, ["mixed"]).stderr
+
+
+def test_single_line_examples_are_unchanged() -> None:
+    """Assert one-line examples stay one per line, with nothing between."""
+    help_text = invoke(ex_cli, ["single", "--help"]).stdout
+    assert "EXAMPLES:\n  ex single --count\n  ex single --json\n\n" in help_text
