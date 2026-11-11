@@ -24,6 +24,8 @@ the file's text (`-` reads a piped STDIN), so a secret never sits on the
 command line or in the environment.
 `output()`, `port()` & `user()` take a value with the standard short
 flag, `-o`, `-p` & `-u`; each accepts `help=`, `default=` & `envvar=`.
+`NoneOr(int)` is a type for `click.option(type=)`: the value, or the word
+`none` for no value at all.
 
 ```python
 @cli.command()
@@ -351,3 +353,67 @@ def timeout(
         metavar="SECONDS",
         help=help,
     )
+
+
+class NoneOr(click.ParamType[Any]):
+    """A value of another type, or a word meaning no value at all.
+
+    `--limit none` hands the command None where `--limit 5` hands it 5, so
+    an option with a default can be switched off & the word shows in help:
+    `--limit INTEGER|none`. The word is matched in any case, wherever the
+    value comes from - the command line, an `envvar=` or a config file.
+
+    ```python
+    @click.option("--limit", type=pyclig.options.NoneOr(int), default=50)
+    ```
+    """
+
+    def __init__(
+        self,
+        inner: click.ParamType[Any] | type = click.STRING,
+        *,
+        word: str = "none",
+    ) -> None:
+        """Create the type.
+
+        Args:
+            inner: The type of every other value, as `click.option(type=)`
+                takes it.
+            word: The word meaning None.
+        """
+        self.inner = click.types.convert_type(inner)
+        self.word = word
+        self.name = f"{self.inner.name}|{word}"
+
+    def get_metavar(self, param: click.Parameter, ctx: click.Context) -> str:
+        """Return `INNER|word`, e.g. `INTEGER|none`.
+
+        Args:
+            param: The parameter of this type.
+            ctx: The command's context.
+
+        Returns:
+            The metavar.
+        """
+        inner = self.inner.get_metavar(param=param, ctx=ctx)
+        return f"{inner or self.inner.name.upper()}|{self.word}"
+
+    def convert(
+        self,
+        value: Any,
+        param: click.Parameter | None,
+        ctx: click.Context | None,
+    ) -> Any:
+        """Return None for the word, else the inner type's conversion.
+
+        Args:
+            value: The value as given.
+            param: The parameter of this type.
+            ctx: The command's context.
+
+        Returns:
+            None or the converted value.
+        """
+        if isinstance(value, str) and value.lower() == self.word.lower():
+            return None
+        return self.inner.convert(value, param, ctx)

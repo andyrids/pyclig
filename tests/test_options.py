@@ -283,3 +283,68 @@ def test_timeout_custom_default_and_help() -> None:
 
     assert invoke(one, []).stdout == "5.0\n"
     assert "Give up after SECONDS." in invoke(one, ["--help"]).stdout
+
+
+@pyclig.command("fetch")
+@click.option("--limit", type=pyclig.options.NoneOr(int), envvar="FETCH_LIMIT")
+@click.option(
+    "--mode",
+    type=pyclig.options.NoneOr(click.Choice(["fast", "slow"]), word="off"),
+    default="fast",
+)
+@click.option("--tag", type=pyclig.options.NoneOr())
+def none_or(limit: int | None, mode: str | None, tag: str | None) -> None:
+    """Print the values."""
+    click.echo(f"{limit!r} {mode!r} {tag!r}")
+
+
+@pytest.mark.parametrize(
+    ("args", "line"),
+    [
+        ([], "None 'fast' None"),
+        (["--limit", "5", "--tag", "x"], "5 'fast' 'x'"),
+        (["--limit", "none", "--tag", "None"], "None 'fast' None"),
+        (["--limit", "NONE", "--mode", "Off"], "None None None"),
+        (["--mode", "slow", "--tag", "off"], "None 'slow' 'off'"),
+    ],
+)
+def test_none_or_word_means_none(args: list[str], line: str) -> None:
+    """Assert the word, in any case, is None & anything else is converted."""
+    result = invoke(none_or, args)
+    assert result.exit_code == 0
+    assert result.stdout == f"{line}\n"
+
+
+def test_none_or_rejects_what_the_inner_type_rejects() -> None:
+    """Assert a value that is neither the word nor valid is a usage error."""
+    result = invoke(none_or, ["--limit", "many"])
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert "'many' is not a valid integer" in result.stderr
+    assert invoke(none_or, ["--mode", "none"]).exit_code == 2
+
+
+def test_none_or_metavar_names_the_word() -> None:
+    """Assert help shows `INNER|none`, so the word is discoverable."""
+    help_text = invoke(none_or, ["--help"]).stdout
+    assert "--limit INTEGER|none" in help_text
+    assert "--mode [fast|slow]|off" in help_text
+    assert "--tag TEXT|none" in help_text
+
+
+def test_none_or_from_the_environment_and_config() -> None:
+    """Assert an env var or a config value of the word is None too."""
+    result = invoke(none_or, [], env={"FETCH_LIMIT": "None"})
+    assert result.stdout == "None 'fast' None\n"
+    result = invoke(none_or, [], env={"FETCH_LIMIT": "3"})
+    assert result.stdout == "3 'fast' None\n"
+
+    @pyclig.command(
+        "mapped", context_settings={"default_map": {"limit": 7, "mode": "OFF"}}
+    )
+    @click.option("--limit", type=pyclig.options.NoneOr(int))
+    @click.option("--mode", type=pyclig.options.NoneOr(word="off"))
+    def mapped(limit: int | None, mode: str | None) -> None:
+        """Print the values a config file supplied."""
+        click.echo(f"{limit!r} {mode!r}")
+
+    assert invoke(mapped, []).stdout == "7 None\n"
