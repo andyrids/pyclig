@@ -13,8 +13,8 @@ primitives, run flags & standard flags. Options, arguments & types are plain cli
 CLIG is treated as a contract: a CLI conforms with no application code wherever `pyclig` can do
 it alone, gets one obvious interface for each rule that needs application input, and
 `pyclig.testing.assert_conforms` reports the rest by rule ID. `docs/clig-coverage.md` has the
-rule-by-rule status and `docs/roadmap.md` what each release adds. Pin `pyclig~=0.6.0` while it
-is pre-1.0: a minor release may break, and `~=0.6` would admit 0.7.
+rule-by-rule status and `docs/roadmap.md` what each release adds. Pin `pyclig~=1.0`: from 1.0 a
+minor release only adds - see Stability.
 
 ## Usage
 
@@ -215,8 +215,8 @@ secret word (`_TOKEN`, `_PASSWORD`, `_API_KEY`...) is skipped, see Secrets. Any 
 `.env:LINE: not KEY=VALUE, ignored` and the rest is still read.
 
 In tests, `invoke` reads no config file or `.env` unless `config_files=True`, and clears
-`<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG` and `_PROFILE`, so a developer's own settings never leak
-in; `--config` and `env={"<PROG>_CONFIG": ...}` still work.
+`<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG`, `_PROFILE` and `_LOG_FILE`, so a developer's own settings
+never leak in; `--config` and `env={"<PROG>_CONFIG": ...}` still work.
 
 ## Paths
 
@@ -594,3 +594,41 @@ def ruff_format() -> NoReturn:
   names it.
 - Module-level consoles become `ctx.out` / `ctx.err`, passed to helpers as arguments.
 - argparse accepted unambiguous option prefixes (`--st` for `--start`); click does not.
+
+## Stability
+
+From 1.0, `pyclig` follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html): a minor
+release only adds, and a breaking change needs 2.0. `tests/api.txt` records the API below, and a
+test fails when it changes.
+
+The API is:
+
+- The names in `__all__` of `pyclig`, `pyclig.options`, `pyclig.paths` & `pyclig.testing`, their
+  signatures, the public members of their classes, and `pyclig.__version__`.
+- The `ExitCode` members & values, and the exit-code table in Errors & exit codes.
+- Stream discipline - records on STDOUT, messages on STDERR - and the `ctx.format` values.
+- The run flags, and the flags & parameter names the `pyclig.options` factories add.
+- The `<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG`, `_PROFILE` & `_LOG_FILE` variables.
+- The config file locations & their precedence.
+- The rule IDs the kit reports.
+
+Not the API, so free to change in any release:
+
+- Help layout, message wording & styling.
+- The body of the bug-report URL, and the log format.
+- Modules & names that start with `_`, and the `pyclig_*` keywords.
+
+The kit keeps the same promise:
+
+- The rule IDs of 1.0 are never removed, renamed or split in 1.x.
+- A rule added after 1.0 is opt-in, so a bare `assert_conforms(cli)` that passes keeps passing.
+- The one exception is a rule fixed to catch a case it missed: it is listed under `Fixed` in the
+  CHANGELOG, with its ID.
+
+Supported versions:
+
+- Python >= 3.11, `click~=8.5` & `rich~=15.0`.
+- Raising one of these floors, or dropping an end-of-life Python, is a minor release, listed
+  under `Changed`.
+- A new click or rich major is taken up in a minor release only if the API above holds;
+  otherwise it waits for 2.0.
