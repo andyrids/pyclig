@@ -247,6 +247,11 @@ Read only, for the rows above:
   - Git Bash `--token-file - </dev/null` reports that the secret is empty.
 
   The agent leaves a demo script in the scratchpad and gives you the `!` commands to run.
+S3 result (11 November 2026, maintainer): all four as expected. In Windows Terminal and in WSL,
+one Ctrl-C during `recv` inside `ctx.cleanup(timeout=3)` printed the notice at once and exited 130
+at the timeout, and a second Ctrl-C skipped the clean-up. `> NUL` picked `plain`, while raw
+`isatty()` still said True. Git Bash `</dev/null` reported an empty secret, exit 2.
+
 - **S6, a manual check by you:** `--help` bold in Windows Terminal, plain with `| more`, `> file` and
   `TERM=dumb`, and in WSL.
 
