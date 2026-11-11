@@ -16,6 +16,30 @@ SAMPLE = Path(__file__).with_name("sample_cli.py")
 
 RunSample = Callable[..., subprocess.CompletedProcess[str]]
 
+DEPENDENCIES = "import pathlib, click, rich.console, rich.text"
+"""What pyclig cannot avoid importing; what these load is not pyclig's doing.
+
+NOTE: Python 3.11's `pathlib` loads `urllib.parse`, and click's `uuid` loads
+`platform` on Linux, so a test that pyclig keeps a module off its import
+path counts the module only when this baseline does not load it.
+"""
+
+
+def dependency_modules() -> set[str]:
+    """Return the modules a fresh interpreter loads for `DEPENDENCIES`."""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"{DEPENDENCIES}; import sys; print(*sys.modules)",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return set(result.stdout.split())
+
+
 # Variables that change Rich's output, unset for every subprocess
 _CLEARED = (
     "COLUMNS",

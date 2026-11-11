@@ -7,7 +7,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import IO, Any
 
 import click
 import pytest
@@ -317,6 +317,11 @@ def main(ctx: pyclig.Context) -> None:
         a, b = socket.socketpair()
         b.setblocking(False)
         signal.set_wakeup_fd(b.fileno())
+    if MODE == "recv":
+        a, b = socket.socketpair()
+        with ctx.cleanup(timeout=TIMEOUT):
+            print("ready", flush=True)
+            a.recv(1)
     if MODE == "normal":
         with ctx.cleanup(timeout=TIMEOUT):
             print("ready", flush=True)
@@ -594,6 +599,43 @@ def test_child_second_signal_skips_the_cleanup(mode: str) -> None:
     assert child.returncode == 130
     assert stderr == "warning: clean-up skipped\n"
     assert elapsed < 0.5, elapsed
+
+
+def test_child_blocked_in_recv_is_told_at_once_and_bounded() -> None:
+    """Assert a block stuck in `recv` hears the signal & exits on time.
+
+    NOTE: On Windows no Python handler runs while the main thread is in
+    `recv`, so only the watcher's wakeup fd can print the notice & exit.
+    """
+    child = _spawn_cleanup("recv", "0.5")
+    assert child.stderr is not None
+    lines: list[tuple[float, str]] = []
+
+    def listen(stderr: IO[str]) -> None:
+        for line in stderr:
+            lines.append((time.monotonic(), line))  # noqa: PERF401
+
+    listener = threading.Thread(target=listen, args=(child.stderr,))
+    listener.start()
+    started = time.monotonic()
+    child.send_signal(STOP)
+    try:
+        child.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        child.kill()
+        child.wait()
+    elapsed = time.monotonic() - started
+    listener.join()
+    for stream in (child.stdout, child.stderr):
+        stream.close()
+    assert [line for _, line in lines] == [
+        "warning: interrupted\n",
+        f"{HINT}\n",
+        "warning: clean-up timed out after 0.5s\n",
+    ]
+    assert lines[0][0] - started < 0.5
+    assert child.returncode == 130
+    assert 0.5 <= elapsed < 0.5 + 0.3, elapsed
 
 
 def test_child_timeout_bounds_the_cleanup() -> None:

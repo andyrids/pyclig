@@ -125,7 +125,8 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
     assert "--audit" not in options
     globals_ = _section(help_text, "GLOBAL OPTIONS:")
     assert globals_[0].startswith("  --audit ")
-    assert globals_[1].startswith("  -d, --debug ")
+    assert globals_[1].startswith("  -v, --version ")
+    assert globals_[2].startswith("  -d, --debug ")
 
 
 @pytest.mark.parametrize(
@@ -134,15 +135,15 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
         (
             "list",
             (
-                "  --audit, -d/--debug, -q/--quiet, --no-color, --no-input - "
-                "see 'sample --help'."
+                "--audit, -v/--version, -d/--debug, -q/--quiet, --no-color, "
+                "--no-input - see 'sample --help'."
             ),
         ),
         (
             "copy",
             (
-                "  --audit, --debug, -q/--quiet, --no-color, --no-input - "
-                "see 'sample --help'."
+                "--audit, -v/--version, --debug, -q/--quiet, --no-color, "
+                "--no-input - see 'sample --help'."
             ),
         ),
     ],
@@ -150,9 +151,10 @@ def test_global_options_listed_in_full_at_the_root(sample: Group) -> None:
 def test_global_options_one_line_on_subcommands(
     sample: Group, command: str, line: str
 ) -> None:
-    """Assert a subcommand's `GLOBAL OPTIONS:` is one line naming the flags."""
+    """Assert a subcommand's `GLOBAL OPTIONS:` names the flags briefly."""
     help_text = invoke(sample, [command, "--help"]).stdout
-    assert _section(help_text, "GLOBAL OPTIONS:") == [line]
+    section = _section(help_text, "GLOBAL OPTIONS:")
+    assert " ".join(part.strip() for part in section) == line
     assert "-d, --debug" not in help_text
 
 
@@ -343,7 +345,8 @@ def test_value_global_option_help(regional: Group) -> None:
         in invoke(regional, ["--help"]).stdout
     )
     assert (
-        "--region, -d/--debug" in invoke(regional, ["where", "--help"]).stdout
+        "--region, -v/--version, -d/--debug"
+        in invoke(regional, ["where", "--help"]).stdout
     )
 
 
@@ -441,6 +444,50 @@ def test_standalone_command_short_help() -> None:
 def test_command_decorator_adds_version() -> None:
     """Assert `pyclig.command()` adds `-v/--version`."""
     assert invoke(tool, ["-v"]).stdout == "tool 0.0.0+unknown\n"
+
+
+def test_version_after_a_subcommand(sample: Group) -> None:
+    """Assert `-v/--version` is global: `prog show -v` prints the version."""
+    for args in (["list", "-v"], ["grp", "leaf", "--version"]):
+        result = invoke(sample, args)
+        assert result.exit_code == 0
+        assert result.stdout == "sample 0.0.0+unknown\n"
+        assert result.stderr == ""
+
+
+def test_version_is_a_global_option_in_help(sample: Group) -> None:
+    """Assert the root lists `-v/--version` under `GLOBAL OPTIONS:`."""
+    help_text = invoke(sample, ["--help"]).stdout
+    assert "--version" not in "\n".join(_section(help_text, "OPTIONS:"))
+    globals_ = "\n".join(_section(help_text, "GLOBAL OPTIONS:"))
+    assert "  -v, --version " in globals_
+
+
+def test_version_does_nothing_under_resilient_parsing(
+    sample: Group, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Assert completion can parse `-v` without printing or exiting."""
+    for args in (["-v"], ["list", "-v"]):
+        with sample.make_context("sample", args, resilient_parsing=True):
+            pass
+    assert capsys.readouterr().out == ""
+
+
+def test_subcommand_verbose_wins_over_version_short() -> None:
+    """Assert a subcommand's own `-v` reaches it; `--version` still works."""
+
+    @pyclig.group("tool", examples=["tool show"])
+    def cli() -> None:
+        """Group commands."""
+
+    @cli.command(examples=["tool show -v"])
+    @click.option("-v", "--verbose", is_flag=True, help="Say more.")
+    def show(verbose: bool) -> None:
+        """Show things."""
+        click.echo(f"verbose={verbose}")
+
+    assert invoke(cli, ["show", "-v"]).stdout == "verbose=True\n"
+    assert invoke(cli, ["show", "--version"]).stdout == "tool 0.0.0+unknown\n"
 
 
 def test_app_verbose_wins_over_version_short() -> None:
@@ -999,6 +1046,44 @@ def test_arguments_reach_commands_as_typed(
     assert result.stdout.splitlines() == [value]
 
 
+_GLOBS = """
+import click
+
+import pyclig
+
+
+@pyclig.command("globs")
+@click.argument("names", nargs=-1)
+def main(names: tuple[str, ...]) -> None:
+    click.echo(" ".join(names))
+
+
+main()
+"""
+
+
+def test_several_arguments_arrive_as_typed(tmp_path: Path) -> None:
+    """Assert `nargs=-1` gets `*.txt` itself, beside files it would match.
+
+    NOTE: No shell is involved, so only the program could expand the glob:
+    click does on Windows unless told not to, as `pyclig.Command.main` does.
+    """
+    for name in ("a.txt", "b.txt"):
+        (tmp_path / name).write_text("", encoding="utf-8")
+    script = tmp_path / "globs.py"
+    script.write_text(_GLOBS, encoding="utf-8")
+    result = subprocess.run(
+        [sys.executable, str(script), "*.txt", "c.txt", "?.txt"],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env=sample_env(),
+        check=False,
+    )
+    assert result.stderr == ""
+    assert result.stdout == "*.txt c.txt ?.txt\n"
+
+
 _RECORDS: list[dict[str, object]] = [
     {"key": "a", "size": 1, "ok": True, "note": None},
     {"key": "b\tc\n\nd", "size": 2, "ok": False, "note": "x"},
@@ -1507,3 +1592,440 @@ def test_confirm_name_interrupted_on_terminal() -> None:
     )
     assert result.exit_code == pyclig.ExitCode.INTERRUPT
     assert result.stderr.endswith("warning: interrupted\n")
+
+
+@pyclig.group("files")
+def files_cli() -> None:
+    """Read & write files."""
+
+
+@files_cli.command()
+@click.argument("source", type=click.File("r"), default="-")
+def count(source: Any) -> None:
+    """Count the lines of SOURCE."""
+    click.echo(len(source.readlines()))
+
+
+@files_cli.command()
+@click.option("--from", "sources", type=click.File("r"), multiple=True)
+@click.option("--to", "target", type=click.File("w"), default="-")
+def join(sources: tuple[Any, ...], target: Any) -> None:
+    """Join the files into one."""
+    target.write("".join(source.read() for source in sources))
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["count", "-"], ["count"], ["join", "--from", "-"]],
+    ids=["dash", "default", "multiple"],
+)
+def test_file_refuses_a_terminal_stdin(args: list[str]) -> None:
+    """Assert `-` for a file to read is a usage error on a terminal."""
+    result = invoke(files_cli, args, in_tty=True, input="never read\n")
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stdout == ""
+    assert (
+        "STDIN is a terminal - pipe the input in or name a file"
+        in result.stderr
+    )
+    assert f"Try 'files {args[0]} --help'" in result.stderr
+
+
+def test_file_reads_a_piped_stdin_or_a_named_file(tmp_path: Path) -> None:
+    """Assert a pipe, a named file & a file to write are left alone."""
+    assert invoke(files_cli, ["count"], input="a\nb\n").stdout == "2\n"
+    named = tmp_path / "three.txt"
+    named.write_text("a\nb\nc\n", encoding="utf-8")
+    result = invoke(files_cli, ["count", str(named)], in_tty=True)
+    assert result.stdout == "3\n"
+    result = invoke(files_cli, ["join", "--from", str(named)], in_tty=True)
+    assert result.stdout == "a\nb\nc\n"
+
+
+def test_file_help_and_completion_ignore_a_terminal_stdin() -> None:
+    """Assert `--help` & resilient parsing never fail on the default `-`."""
+    result = invoke(files_cli, ["count", "--help"], in_tty=True)
+    assert result.exit_code == 0
+    with patch("pyclig._run.is_tty", return_value=True):
+        with count.make_context("count", [], resilient_parsing=True):
+            pass
+        with pytest.raises(click.BadParameter, match="STDIN is a terminal"):
+            count.make_context("count", [])
+
+
+@pyclig.group("dep")
+def dep_cli() -> None:
+    """Keep old spellings working."""
+
+
+@dep_cli.command(deprecated="use 'dep new'")
+@pyclig.pass_context
+def old(ctx: pyclig.Context) -> None:
+    """Do it the old way."""
+    click.echo(ctx.get_help().splitlines()[3])
+
+
+@dep_cli.command(deprecated=True)
+def older() -> None:
+    """Do it the older way."""
+    click.echo("ran")
+
+
+@dep_cli.group(deprecated="use 'dep'")
+def legacy() -> None:
+    """Group the old commands."""
+
+
+@legacy.command()
+def leaf() -> None:
+    """Run below a deprecated group."""
+    click.echo("leaf")
+
+
+@dep_cli.command()
+@click.option("--from", "source", deprecated="use --source")
+@click.option("--source", default="here")
+@click.option("--fast", is_flag=True, deprecated=True, envvar="DEP_FAST")
+@click.argument("extra", required=False, deprecated=True)
+def new(source: str, fast: bool, extra: str | None) -> None:
+    """Do it the new way."""
+    click.echo(f"{source} {fast} {extra}")
+
+
+@pytest.mark.parametrize(
+    ("args", "stdout", "stderr"),
+    [
+        (
+            ["old"],
+            "  Do it the old way. (DEPRECATED: use 'dep new')\n",
+            "warning: command 'old' is deprecated - use 'dep new'\n",
+        ),
+        (["older"], "ran\n", "warning: command 'older' is deprecated\n"),
+        (
+            ["legacy", "leaf"],
+            "leaf\n",
+            "warning: command 'legacy' is deprecated - use 'dep'\n",
+        ),
+        (
+            ["new", "--from", "there"],
+            "there False None\n",
+            "warning: option '--from' is deprecated - use --source\n",
+        ),
+        (
+            ["new", "--fast", "more"],
+            "here True more\n",
+            (
+                "warning: option '--fast' is deprecated\n"
+                "warning: argument 'EXTRA' is deprecated\n"
+            ),
+        ),
+        (["new"], "here False None\n", ""),
+    ],
+    ids=["reason", "bare", "group", "option", "flag-argument", "not-given"],
+)
+def test_deprecated_use_warns_on_stderr(
+    args: list[str], stdout: str, stderr: str
+) -> None:
+    """Assert a deprecated command or parameter prints one `warning:` line.
+
+    NOTE: `old` prints its own help while it runs, so the deprecation label
+    must already be back in place inside the callback.
+    """
+    result = invoke(dep_cli, args)
+    assert result.exit_code == 0
+    assert result.stdout == stdout
+    assert result.stderr == stderr
+    assert "DeprecationWarning" not in result.output
+
+
+def test_deprecated_parameter_from_the_environment_warns() -> None:
+    """Assert an env var counts as given, as click decides."""
+    result = invoke(dep_cli, ["new"], env={"DEP_FAST": "1"})
+    assert result.stdout == "here True None\n"
+    assert result.stderr == "warning: option '--fast' is deprecated\n"
+
+
+def test_deprecated_stays_marked_in_help() -> None:
+    """Assert help keeps `(DEPRECATED)` & prints no warning."""
+    result = invoke(dep_cli, ["--help"])
+    assert "(DEPRECATED: use 'dep new')" in result.stdout
+    assert "(DEPRECATED)" in result.stdout
+    result = invoke(dep_cli, ["new", "--help"])
+    assert "(DEPRECATED: use --source)" in result.stdout
+    assert "[EXTRA!]" in result.stdout
+    assert result.stderr == ""
+    assert old.deprecated == "use 'dep new'"
+
+
+def test_deprecated_parameter_silent_while_completing(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Assert resilient parsing prints no warning."""
+    with new.make_context("new", ["--fast"], resilient_parsing=True):
+        pass
+    assert capsys.readouterr().err == ""
+
+
+def _concise(count: int) -> str:
+    """Return the concise help of a command with `count` visible options."""
+
+    @pyclig.command("few", examples=["few --opt-0 x"], no_args_is_help=True)
+    @click.option("--secret", hidden=True)
+    @click.option("--trace", cls=pyclig.GlobalOption, callback=print)
+    def few(**kwargs: Any) -> None:
+        """Take a few options."""
+
+    for index in range(count):
+        few.params.append(click.Option([f"--opt-{index}"], help="An option."))
+    result = invoke(few)
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    return result.stderr
+
+
+@pytest.mark.parametrize("count", [1, 6])
+def test_concise_help_lists_a_few_options(count: int) -> None:
+    """Assert concise help lists 1 to 6 own options after the examples."""
+    lines = _concise(count).splitlines()
+    start = lines.index("OPTIONS:")
+    assert lines.index("EXAMPLES:") < start
+    assert lines[start + 1 : start + 1 + count] == [
+        f"  --opt-{index} TEXT  An option." for index in range(count)
+    ]
+    assert lines[start + 1 + count] == ""
+    assert lines[-1] == "Try 'few --help' for more information."
+    for absent in ("--secret", "--trace", "--help", "--debug", "--version"):
+        assert absent not in "\n".join(lines[:-1])
+
+
+@pytest.mark.parametrize("count", [0, 7])
+def test_concise_help_omits_no_or_many_options(count: int) -> None:
+    """Assert concise help has no `OPTIONS:` for none or more than 6."""
+    assert "OPTIONS:" not in _concise(count)
+
+
+@pyclig.group(
+    "learn",
+    docs="https://example.com/learn",
+    epilog="Good luck.",
+    examples=["learn more"],
+)
+def learn_cli() -> None:
+    """Point at the documentation."""
+
+
+@learn_cli.command(docs="https://example.com/learn/more", no_args_is_help=True)
+@click.argument("topic")
+def more(topic: str) -> None:
+    """Read more about TOPIC."""
+
+
+@learn_cli.command()
+def less() -> None:
+    """Read less."""
+
+
+def test_learn_more_is_the_last_section() -> None:
+    """Assert `docs=` & the bug tracker close the root's full help."""
+    with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
+        result = invoke(learn_cli, ["--help"])
+    assert _headings(result.stdout)[-1] == "LEARN MORE:"
+    assert result.stdout.endswith(
+        "\n  Good luck.\n"
+        "\n"
+        "LEARN MORE:\n"
+        "  Docs    https://example.com/learn\n"
+        "  Issues  https://x.test/bugs\n"
+    )
+
+
+def test_learn_more_on_a_subcommand_is_its_own_docs() -> None:
+    """Assert a subcommand shows its `docs=` & never the bug tracker."""
+    with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
+        result = invoke(learn_cli, ["more", "--help"])
+        assert (
+            "LEARN MORE:" not in invoke(learn_cli, ["less", "--help"]).stdout
+        )
+    assert result.stdout.endswith(
+        "\nLEARN MORE:\n  Docs  https://example.com/learn/more\n"
+    )
+    assert "Issues" not in result.stdout
+
+
+def test_learn_more_absent_without_links_and_from_concise_help(
+    sample: Group,
+) -> None:
+    """Assert no section without a link, & none in concise help at all."""
+    assert "LEARN MORE:" not in invoke(sample, ["--help"]).stdout
+    with patch("pyclig._run._project_url", return_value="https://x.test/bugs"):
+        assert "LEARN MORE:" not in invoke(learn_cli).stdout
+        assert "LEARN MORE:" not in invoke(learn_cli, ["more"]).stderr
+
+
+@pyclig.group("ex")
+def ex_cli() -> None:
+    """Show examples."""
+
+
+@ex_cli.command(
+    examples=[
+        "ex mixed --count\n3 items\n\n1 skipped\n",
+        "ex mixed --json",
+        "ex mixed --all\n4 items",
+    ],
+    no_args_is_help=True,
+)
+@click.argument("item")
+def mixed(item: str) -> None:
+    """Show examples with their output."""
+
+
+@ex_cli.command(examples=["ex single --count", "ex single --json"])
+def single() -> None:
+    """Show examples without output."""
+
+
+def test_multi_line_example_shows_its_output() -> None:
+    """Assert the lines after an invocation are its output, indented more.
+
+    NOTE: Examples are parted by a blank line once any of them has output;
+    a blank line of the output itself carries no trailing spaces.
+    """
+    expected = (
+        "EXAMPLES:\n"
+        "  ex mixed --count\n"
+        "    3 items\n"
+        "\n"
+        "    1 skipped\n"
+        "\n"
+        "  ex mixed --json\n"
+        "\n"
+        "  ex mixed --all\n"
+        "    4 items\n"
+        "\n"
+    )
+    assert expected in invoke(ex_cli, ["mixed", "--help"]).stdout
+    assert expected in invoke(ex_cli, ["mixed"]).stderr
+
+
+def test_single_line_examples_are_unchanged() -> None:
+    """Assert one-line examples stay one per line, with nothing between."""
+    help_text = invoke(ex_cli, ["single", "--help"]).stdout
+    assert (
+        "EXAMPLES:\n  ex single --count\n  ex single --json\n\n" in help_text
+    )
+
+
+def test_nested_global_option_points_at_its_group() -> None:
+    """Assert a subcommand's pointer names the group declaring each flag."""
+
+    @pyclig.group("tool")
+    def cli() -> None:
+        """Group commands."""
+
+    @cli.group()
+    @click.option("--trace", cls=pyclig.GlobalOption, callback=print)
+    def grp() -> None:
+        """Group traced commands."""
+
+    @grp.command()
+    def leaf() -> None:
+        """Run traced."""
+
+    help_text = invoke(cli, ["grp", "leaf", "--help"]).stdout
+    section = _section(help_text, "GLOBAL OPTIONS:")
+    assert " ".join(part.strip() for part in section[:2]) == (
+        "-v/--version, -d/--debug, -q/--quiet, --no-color, --no-input - "
+        "see 'tool --help'."
+    )
+    assert section[2:] == ["  --trace - see 'tool grp --help'."]
+    assert "  --trace\n" in invoke(cli, ["grp", "--help"]).stdout
+    assert "--trace" not in invoke(cli, ["--help"]).stdout
+
+
+BOLD_USAGE = "\x1b[1mUSAGE:\x1b[0m\n"
+
+
+def test_help_headings_bold_on_a_styled_terminal(sample: Group) -> None:
+    """Assert `USAGE:` & every heading are bold, & nothing else is styled."""
+    result = invoke(sample, ["--help"], out_tty=True, color=True)
+    assert result.stdout.startswith(
+        f"{BOLD_USAGE}  sample [options] <command>\n"
+    )
+    for heading in ("EXAMPLES:", "COMMANDS:", "OPTIONS:", "GLOBAL OPTIONS:"):
+        assert f"\n\x1b[1m{heading}\x1b[0m\n" in result.stdout
+    assert result.stdout.count("\x1b[") == 2 * 5
+    plain = invoke(sample, ["--help"]).stdout
+    assert click.unstyle(result.stdout) == plain
+
+
+def test_help_bold_survives_no_color(sample: Group) -> None:
+    """Assert `--no-color` keeps bold: it is emphasis, not colour."""
+    result = invoke(sample, ["--no-color", "--help"], out_tty=True, color=True)
+    assert result.stdout.startswith(BOLD_USAGE)
+    assert "\x1b[3" not in result.stdout
+
+
+def test_help_plain_without_styling(sample: Group) -> None:
+    """Assert no escape code in help when the console has no colour system."""
+    for args in (["--help"], ["list", "--help"], ["help", "list"], []):
+        assert "\x1b" not in invoke(sample, args).output
+        assert "\x1b" not in invoke(sample, args, out_tty=True).output
+    assert "\x1b" not in invoke(sample, ["process"], err_tty=True).output
+
+
+def test_concise_help_on_stderr_is_bold_when_styled(sample: Group) -> None:
+    """Assert the STDERR concise help follows the STDERR console."""
+    result = invoke(sample, ["process"], err_tty=True, color=True)
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert result.stderr.startswith(BOLD_USAGE)
+    assert "\x1b[1mOPTIONS:\x1b[0m\n" in result.stderr
+
+
+def test_usage_error_usage_block_is_never_styled(sample: Group) -> None:
+    """Assert the usage under an error is plain text, as Rich prints it."""
+    result = invoke(
+        sample, ["list", "--bogus"], out_tty=True, err_tty=True, color=True
+    )
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    assert "\nUSAGE:\n  sample list [options]\n" in result.stderr
+    assert "\x1b[1mUSAGE" not in result.stderr
+    assert "[1mUSAGE" not in click.unstyle(result.stderr)
+
+
+@pytest.mark.parametrize(
+    ("env", "bold"),
+    [
+        ({"TTY_COMPATIBLE": "1", "TERM": "xterm-256color"}, True),
+        ({"TTY_COMPATIBLE": "1", "TERM": "dumb"}, False),
+        ({"TERM": "xterm-256color"}, False),
+        ({"FORCE_COLOR": "1", "TERM": "xterm-256color"}, True),
+    ],
+    ids=["terminal", "dumb-terminal", "pipe", "forced-colour-pipe"],
+)
+def test_help_bold_follows_the_real_console(
+    run_sample: RunSample, env: dict[str, str], bold: bool
+) -> None:
+    """Assert a subprocess styles help only where its console is styled."""
+    result = run_sample("--help", env=env)
+    assert result.returncode == 0
+    assert result.stdout.startswith(BOLD_USAGE if bold else "USAGE:\n")
+    assert ("\x1b" in result.stdout) is bold
+    assert result.stderr == ""
+
+
+def test_lines_variable_sets_the_console_height(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert `LINES` alone sets the height of the run's consoles."""
+    monkeypatch.setenv("LINES", "7")
+    monkeypatch.delenv("COLUMNS", raising=False)
+    out, err = pyclig._run.make_consoles()
+    assert (out.size.height, err.size.height) == (7, 7)
+
+    @pyclig.command("tall")
+    @pyclig.pass_context
+    def tall(ctx: pyclig.Context) -> None:
+        """Print the terminal height."""
+        click.echo(ctx.err.size.height)
+
+    assert invoke(tall, [], env={"LINES": "7"}).stdout == "7\n"

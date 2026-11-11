@@ -1,16 +1,30 @@
 """Tests for `pyclig._run` - exit codes & error rendering."""
 
+import io
 import logging
+import os
+import platform
 import subprocess
 import sys
+import types
+from pathlib import Path
 from typing import Any
+from unittest.mock import patch
+from urllib import parse
 
+import click
 import pytest
 
 import pyclig
 from pyclig import Group, _run
 from pyclig.testing import invoke
-from tests.conftest import SAMPLE, InterruptingInput, RunSample, sample_env
+from tests.conftest import (
+    SAMPLE,
+    InterruptingInput,
+    RunSample,
+    dependency_modules,
+    sample_env,
+)
 
 # (args, message, failing command path)
 USAGE_ERRORS = [
@@ -95,7 +109,8 @@ def test_no_args_is_help_prints_concise_help_to_stderr(sample: Group) -> None:
         "  Process sample items.",
     ]
     assert lines[-1] == "Try 'sample process --help' for more information."
-    assert "OPTIONS:" not in lines
+    assert lines[lines.index("OPTIONS:") + 1] == "  --start YEAR"
+    assert "GLOBAL OPTIONS:" not in lines
     assert "error:" not in result.stderr
 
 
@@ -218,9 +233,13 @@ def test_bug_hint_names_issues_url(
     """Assert a crash hints at the distribution's `Issues` project URL."""
     monkeypatch.setattr(_run, "_distribution", lambda package: "pyclig")
     result = invoke(sample, ["fail", "--kind", "crash"])
-    assert result.stderr.rstrip().endswith(
-        "please report it at https://github.com/andyrids/pyclig/issues, "
-        "with the output above."
+    hint, url = result.stderr.splitlines()[-2:]
+    assert hint == (
+        f"This is a bug in sample {pyclig.__version__} - please report it, "
+        "with the output above:"
+    )
+    assert url.startswith(
+        "https://github.com/andyrids/pyclig/issues/new?title=sample%20"
     )
 
 
@@ -325,6 +344,61 @@ def test_forced_colour_streams_stay_pipes(run_sample: RunSample) -> None:
     assert result.stderr == "out=False err=False live=False prompt=False\n"
 
 
+def test_null_device_is_not_a_terminal() -> None:
+    """Assert `> NUL` & `< NUL` are no terminal: `isatty` says yes on win32."""
+    result = subprocess.run(
+        [sys.executable, str(SAMPLE), "streams"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=sample_env(),
+        check=False,
+    )
+    assert result.stderr == "out=False err=False live=False prompt=False\n"
+    with open(os.devnull, "w", encoding="utf-8") as null:
+        assert not _run.is_tty(null)
+
+
+def test_null_device_is_a_terminal_when_asked() -> None:
+    """Assert `TTY_COMPATIBLE=1` still makes the null device a terminal."""
+    result = subprocess.run(
+        [sys.executable, str(SAMPLE), "streams"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=sample_env({"TTY_COMPATIBLE": "1"}),
+        check=False,
+    )
+    assert result.stderr.startswith("out=True err=True")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows console")
+@pytest.mark.parametrize(
+    ("device", "mode"), [("CONOUT$", "w"), ("CONIN$", "r")]
+)
+def test_windows_console_is_a_terminal(device: str, mode: str) -> None:
+    """Assert the console's own devices pass the `GetConsoleMode` check."""
+    try:
+        console = open(device, mode, encoding="utf-8")  # noqa: SIM115
+    except OSError:
+        pytest.skip("no console is attached to this process")
+    with console:
+        assert _run.is_tty(console)
+
+
+def test_stream_without_a_descriptor_is_trusted() -> None:
+    """Assert a replacement stream saying it is a terminal is believed."""
+
+    class Fake(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    assert _run.is_tty(Fake())
+    assert not _run.is_tty(io.StringIO())
+    assert not _run.is_tty(None)
+
+
 def test_no_color_removes_colour(run_sample: RunSample) -> None:
     """Assert `NO_COLOR` drops colour, even when styling is forced."""
     result = run_sample(
@@ -361,6 +435,87 @@ def test_explicit_io_encoding_replaces_unencodable(
     )
     assert result.returncode == 0
     assert "UnicodeEncodeError" not in result.stderr
+
+
+def test_empty_io_encoding_is_not_explicit(run_sample: RunSample) -> None:
+    """Assert `PYTHONIOENCODING=` is unset, as Python reads it: UTF-8."""
+    result = run_sample(
+        "show", "--value", "✓ → ·", env={"PYTHONIOENCODING": ""}
+    )
+    assert result.returncode == 0
+    assert "✓ → ·" in result.stdout
+
+
+_POSIX = pytest.mark.skipif(sys.platform == "win32", reason="POSIX only")
+_NO_HOME = ("HOME", "USERPROFILE", "APPDATA")
+_HOSTILE = [
+    pytest.param({"unset": _NO_HOME}, id="no-home"),
+    pytest.param({"env": {"LC_ALL": "C"}}, id="c-locale"),
+    pytest.param({"stdin": subprocess.DEVNULL}, id="null-stdin"),
+    pytest.param({"stdin": "closed"}, id="closed-stdin", marks=_POSIX),
+    pytest.param({"env": {"TERM": "dumb"}}, id="dumb-term"),
+    pytest.param({"env": {"COLUMNS": "20"}}, id="narrow"),
+    pytest.param({"env": {"PYTHONIOENCODING": ""}}, id="empty-encoding"),
+    pytest.param({"cwd": "read-only"}, id="read-only-cwd", marks=_POSIX),
+    pytest.param({"cwd": "deleted"}, id="deleted-cwd", marks=_POSIX),
+]
+
+
+def _hostile(
+    tmp_path: Any, args: list[str], setting: dict[str, Any]
+) -> subprocess.CompletedProcess[str]:
+    """Run the sample CLI in one hostile environment."""
+    env = sample_env(setting.get("env"))
+    for name in setting.get("unset", ()):
+        env.pop(name, None)
+    stdin = setting.get("stdin")
+    hooks: list[Any] = []
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    if stdin == "closed":
+        stdin = None
+        hooks.append(lambda: os.close(0))
+    if setting.get("cwd") == "read-only":
+        cwd.chmod(0o500)
+    if setting.get("cwd") == "deleted":
+        hooks.append(cwd.rmdir)
+    return subprocess.run(
+        [sys.executable, str(SAMPLE), *args],
+        stdin=stdin,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        cwd=cwd,
+        check=False,
+        preexec_fn=(lambda: [hook() for hook in hooks]) if hooks else None,
+    )
+
+
+@pytest.mark.parametrize("setting", _HOSTILE)
+@pytest.mark.parametrize(
+    ("args", "code"),
+    [
+        pytest.param(["--help"], 0, id="help"),
+        pytest.param(["-v"], 0, id="version"),
+        pytest.param(["show", "--value", "said"], 0, id="notice"),
+        pytest.param(["fail", "--kind", "crash"], 70, id="crash"),
+    ],
+)
+def test_hostile_environment_changes_nothing(
+    tmp_path: Any, args: list[str], code: int, setting: dict[str, Any]
+) -> None:
+    """Assert help, version, a notice & a crash behave in any environment."""
+    result = _hostile(tmp_path, args, setting)
+    assert result.returncode == code, result.stderr
+    if code:
+        assert "RuntimeError: boom" in result.stderr
+    else:
+        assert "Traceback" not in result.stderr
+        assert result.stdout
+    if args[0] == "show":
+        assert "warning: said" in result.stderr
 
 
 def _run_hook(
@@ -491,3 +646,236 @@ def test_run_honours_no_color_variable(
     assert code == 1
     assert "\x1b[1;31m" not in stderr
     assert "\x1b[1merror:" in stderr
+
+
+def _install(site: Path, metadata: str) -> None:
+    """Lay out an installed `fast_app` package under `site`."""
+    package = site / "fast_app"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(_FAST_APP, encoding="utf-8")
+    info = site / "Fast.App-1.0.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(metadata, encoding="utf-8")
+
+
+_FAST_APP = '''
+import click
+
+import pyclig
+
+
+@pyclig.command("fast")
+def main() -> None:
+    """Start fast."""
+'''
+
+_HEADERS = "Metadata-Version: 2.4\nName: Fast.App\nVersion: 1.0\n"
+
+
+@pytest.mark.parametrize(
+    ("headers", "url"),
+    [
+        (
+            (
+                "Project-URL: Homepage, https://x.test/fast\n"
+                "Project-URL: Bug Tracker, https://x.test/fast/bugs\n"
+                "Project-URL: Issues, https://x.test/fast/later\n"
+            ),
+            "https://x.test/fast/bugs",
+        ),
+        ("project-url: issue-tracker,https://x.test/i\n", "https://x.test/i"),
+        (
+            "Project-URL: Issues,\n  https://x.test/folded\n",
+            "https://x.test/folded",
+        ),
+        ("Project-URL: Homepage, https://x.test/fast\n", None),
+        ("\nProject-URL: Issues, https://x.test/in-the-body\n", None),
+    ],
+    ids=["first-tracker", "label-variant", "folded", "no-tracker", "body"],
+)
+def test_project_url_read_from_installed_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: str,
+    url: str | None,
+) -> None:
+    """Assert the tracker is read from `METADATA` headers, without a scan.
+
+    NOTE: Once the distribution's `METADATA` is found its answer is final,
+    so `importlib.metadata` is not asked even when no tracker is named.
+    """
+    _install(tmp_path, f"{_HEADERS}{headers}\nThe description.\n")
+    module = types.ModuleType("fast_app")
+    module.__file__ = str(tmp_path / "fast_app" / "__init__.py")
+    monkeypatch.setitem(sys.modules, "fast_app", module)
+    monkeypatch.setattr(_run, "_distribution", lambda package: 1 / 0)
+    assert _run._project_url("fast_app") == url
+
+
+def test_project_url_falls_back_to_importlib(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert a package with no `dist-info` beside it is found as before."""
+    module = types.ModuleType("fast_app")
+    module.__file__ = str(tmp_path / "fast_app" / "__init__.py")
+    monkeypatch.setitem(sys.modules, "fast_app", module)
+    monkeypatch.setattr(_run, "_distribution", lambda package: "pyclig")
+    assert _run._project_url("fast_app") == (
+        "https://github.com/andyrids/pyclig/issues"
+    )
+    assert _run._project_url("never_imported") == (
+        "https://github.com/andyrids/pyclig/issues"
+    )
+
+
+def test_root_help_of_an_installed_app_skips_importlib_metadata(
+    tmp_path: Path,
+) -> None:
+    """Assert `--help` prints `Issues` & never loads `importlib.metadata`."""
+    _install(
+        tmp_path,
+        f"{_HEADERS}Project-URL: Issues, https://x.test/fast/issues\n",
+    )
+    env = sample_env()
+    env["PYTHONPATH"] = os.pathsep.join([str(tmp_path), env["PYTHONPATH"]])
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-X",
+            "importtime",
+            "-c",
+            "from fast_app import main; main()",
+            "--help",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert (
+        "LEARN MORE:\n  Issues  https://x.test/fast/issues\n" in result.stdout
+    )
+    imported = {
+        line.rpartition("|")[2].strip() for line in result.stderr.splitlines()
+    }
+    assert "click" in imported
+    forbidden = {"importlib.metadata", "urllib.parse", "platform"}
+    assert not imported & (forbidden - dependency_modules())
+
+
+@pyclig.command("leaky")
+@click.option("--password")
+@click.argument("target")
+def leaky(password: str, target: str) -> None:
+    """Crash with a message full of things that must stay local."""
+    raise RuntimeError(f"token=hunter2 for {password} in {target}")
+
+
+def _report(tracker: str, **kwargs: Any) -> tuple[list[str], str]:
+    """Return the STDERR lines of a `leaky` crash & the report URL."""
+    with patch("pyclig._run._project_url", return_value=tracker):
+        result = invoke(
+            leaky, ["--password", "s3cr3t", r"C:\Users\me\vault.txt"], **kwargs
+        )
+    assert result.exit_code == pyclig.ExitCode.INTERNAL
+    lines = result.stderr.splitlines()
+    return lines, lines[-1]
+
+
+@pytest.mark.parametrize(
+    ("tracker", "new", "title", "body"),
+    [
+        (
+            "https://github.com/acme/leaky/issues",
+            "https://github.com/acme/leaky/issues/new?",
+            "title",
+            "body",
+        ),
+        (
+            "https://gitlab.com/acme/tools/leaky/-/issues/",
+            "https://gitlab.com/acme/tools/leaky/-/issues/new?",
+            "issue[title]",
+            "issue[description]",
+        ),
+    ],
+    ids=["github", "gitlab"],
+)
+def test_bug_report_url_is_pre_filled(
+    tracker: str, new: str, title: str, body: str
+) -> None:
+    """Assert the URL opens a new issue naming versions, platform & type."""
+    lines, url = _report(tracker)
+    assert lines[-2] == (
+        "This is a bug in leaky 0.0.0+unknown - please report it, with the "
+        "output above:"
+    )
+    assert url.startswith(new)
+    assert " " not in url
+    query = parse.parse_qs(parse.urlsplit(url).query, strict_parsing=True)
+    assert set(query) == {title, body}
+    assert query[title] == ["leaky 0.0.0+unknown: unexpected RuntimeError"]
+    python = platform.python_version()
+    assert query[body][0].splitlines() == [
+        "Program: leaky 0.0.0+unknown",
+        f"pyclig: {pyclig.__version__}",
+        f"Python: {python} ({platform.python_implementation()})",
+        f"Platform: {platform.system()} {platform.release()}",
+        "Error: unexpected RuntimeError",
+        "",
+        "(paste the output above)",
+    ]
+
+
+@pytest.mark.parametrize(
+    "tracker",
+    [
+        "https://github.com/acme/leaky/issues",
+        "https://gitlab.com/acme/leaky/-/issues",
+        "https://bugs.example.org/leaky",
+    ],
+)
+def test_bug_report_url_carries_nothing_private(tracker: str) -> None:
+    """Assert no message, argument, path or variable reaches the URL."""
+    lines, url = _report(tracker, env={"LEAKY_TOKEN": "t0ps3cret"})
+    assert any("token=hunter2" in line for line in lines[:-1])
+    decoded = parse.unquote(url)
+    private = (
+        "hunter2",
+        "s3cr3t",
+        "password",
+        "vault",
+        "Users",
+        "t0ps3cret",
+        "LEAKY_TOKEN",
+        str(Path.cwd()),
+        Path.home().name,
+        Path(sys.executable).name,
+    )
+    for text in private:
+        assert text not in decoded
+
+
+@pytest.mark.parametrize(
+    "tracker",
+    [
+        "https://bugs.example.org/leaky",
+        "https://github.com/acme/leaky/discussions",
+        "https://github.com/acme/leaky/issues?q=is%3Aopen",
+    ],
+    ids=["other-host", "not-the-issues-page", "with-a-query"],
+)
+def test_bug_report_url_left_alone_elsewhere(tracker: str) -> None:
+    """Assert a tracker that takes no pre-filled issue is linked as it is."""
+    assert _report(tracker)[1] == tracker
+
+
+def test_bug_report_url_is_one_line_on_a_narrow_terminal() -> None:
+    """Assert the URL is never wrapped, so it stays a link at 40 columns."""
+    lines, url = _report(
+        "https://github.com/acme/leaky/issues", width=40, err_tty=True
+    )
+    assert url.startswith("https://github.com/acme/leaky/issues/new?title=")
+    assert url.endswith("output%20above%29")
+    assert len(url) > 200
+    assert max(len(line) for line in lines[:-1]) <= 40

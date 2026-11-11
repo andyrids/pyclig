@@ -48,7 +48,26 @@ attributes). A release may ship fewer items than listed, never a breaking one.
 - Third-party warnings & root-logger records through the run's STDERR console (OUT-18)
 - Hide logs on success, show them on failure (ROB-5)
 
+## 0.7 - closing the rows (delivered in 0.7.0)
+
+- Static kit rules for arguments, one-letter flags, flag consistency, environment variable names
+  & subcommand naming (ARG-1, ARG-3, ARG-5, ARG-6, SUB-3, SUB-4, SUB-5, ENV-2, ENV-4)
+- The kit gains `samples=`: command lines it runs for real, checking the exit, `--json`, STDOUT
+  & tracebacks (BAS-4, BAS-5, ERR-2)
+- Evidence for Ctrl-C inside blocking I/O, import time, threaded notices & hostile environments;
+  `> NUL` is plain & an empty `PYTHONIOENCODING` is unset (INT-5, ROB-2, ROB-4, ROB-9)
+- `-v/--version` anywhere on the command line (ARG-15)
+- `options.NoneOr`: a value, or the word `none` (ARG-14)
+- A `click.File` to read refuses `-` on a terminal STDIN (HELP-18)
+- Deprecated commands & parameters warn in pyclig's style (FUT-2)
+- Concise help lists a few options; `docs=` & `LEARN MORE:`; examples with their output; bold
+  headings (HELP-3, HELP-7, HELP-8, HELP-10, HELP-14)
+- A pre-filled bug report URL on github.com & gitlab.com (ERR-8)
+- `LINES` & `TERM=dumb` are honoured, as Rich reads them (ENV-10, ENV-12)
+
+Every row is now `done`, or owned `out`. ARG-1, ARG-5, SUB-4 & SUB-5 are static kit rules, not
+`samples=` ones as first planned: they need no run.
+
 ## 1.0 - API freeze
 
-- Every row `done`, or owned `out`
-- The kit gains `samples=` for checks that need a run with input (ARG-1, ARG-5, SUB-4, SUB-5)
+- No new rows: the public names, signatures & kit rule IDs of 0.7 are frozen
