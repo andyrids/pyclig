@@ -779,7 +779,7 @@ before the next. Consumers ran unmodified in scratch clones on a wheel of the br
 | 3 robustness | Confirmed; S3 by hand | `test_hostile_environment_changes_nothing` |
 | 4 arguments | Confirmed | `test_deprecated_use_warns_on_stderr` |
 | 5 help content | Confirmed after a perf fix | `test_root_help_of_an_installed_app_...` |
-| 6 help style | Confirmed in tests | `test_help_bold_follows_the_real_console` |
+| 6 help style | Confirmed; S6 by hand | `test_help_bold_follows_the_real_console` |
 | 7 bug report URL | Confirmed; defect 1 | `test_bug_report_url_carries_nothing_private` |
 | 8 docs | Confirmed: no row left open | 145 rows, each `done*` or owned `out` |
 
@@ -808,7 +808,10 @@ reads `METADATA` directly and brought it back to the pre-feature 147-149 ms.
 
 By hand (S3, 11 November): Ctrl-C during `recv` inside `ctx.cleanup(timeout=3)` in Windows
 Terminal & WSL said so at once and exited 130 at the timeout, a second Ctrl-C skipped the block;
-`> NUL` picked `plain`; Git Bash `</dev/null` reported an empty secret, exit 2.
+`> NUL` picked `plain`; Git Bash `</dev/null` reported an empty secret, exit 2. S6, the same
+day: help headings & `USAGE:` bold in Windows Terminal & WSL, kept with `--no-color`; plain through
+`| more`, a file, `| cat -v` & `TERM=dumb`; a usage error's `USAGE:` block plain; `LINES=7` gave a
+height of 7.
 
 ### Defects found in 0.7.0
 
@@ -843,9 +846,8 @@ Terminal & WSL said so at once and exited 130 at the timeout, a second Ctrl-C sk
 - The kit's `_CLEARED` lacks `TTY_INTERACTIVE`, which `testing._CLEARED` has. For 1.0.
 - ROB-2's import-time test fails on a WSL-mounted Windows drive (about 155 ms); on the native
   WSL filesystem it passes.
-- Not verified this round: S6 (bold help in real terminals) and the two pre-filled URLs in a
-  browser, both with the maintainer; GitLab's percent-encoded `issue%5Btitle%5D` form; macOS;
-  3.11 & 3.13 on POSIX.
+- Not verified this round: the two pre-filled URLs in a browser, with the maintainer; GitLab's
+  percent-encoded `issue%5Btitle%5D` form; macOS; 3.11 & 3.13 on POSIX.
 - `develop` versions as `0.2.1.devN`: `v0.6.0` is not its ancestor, so the bug URL shows that
   version from a source tree. Pre-existing; release builds are tagged.
 
