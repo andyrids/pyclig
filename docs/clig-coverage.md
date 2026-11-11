@@ -15,7 +15,7 @@ file is shared under the same licence.
 
 CLIG is the requirement. Every actionable rule has a row here, and the IDs are the one namespace
 shared by `pyclig.testing.assert_conforms`, `docs/roadmap.md` and the CHANGELOG. Status is as of
-0.6.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
+0.7.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
 so it stays true across line moves.
 
 Status: `done` means pyclig delivers it, `done (click)` or `done (rich)` that a dependency does;
@@ -32,8 +32,8 @@ library's reach.
 | BAS-1 | Use a parser library | done (click) | `pyclig.group`, `pyclig.command` | auto |
 | BAS-2 | Zero on success, non-zero on failure | done | `_run.execute`; kit probes | auto |
 | BAS-3 | Map codes to the main failure modes | done | `exit_code` on `errors=` types | interface |
-| BAS-4 | Output to STDOUT, machine-readable too | partial | `ctx.out`; kit: STDOUT clean | check |
-| BAS-5 | Messages & errors to STDERR | done | `notice`, `EventHandler`; kit probes | auto |
+| BAS-4 | Output to STDOUT, machine-readable too | done | `ctx.out`; kit `samples=` | check |
+| BAS-5 | Messages & errors to STDERR | done | `notice`; kit probes & `samples=` | auto |
 
 ## Help
 
@@ -41,22 +41,22 @@ library's reach.
 | --- | --- | --- | --- | --- |
 | HELP-1 | `-h` & `--help`, subcommands too | done | Root `Context` default; kit probes | auto |
 | HELP-2 | Concise help when arguments are missing | done | `get_concise_help` | auto |
-| HELP-3 | Concise help content | partial | No flag list; kit: flag help text | auto |
+| HELP-3 | Concise help content | done | `format_concise_options`; kit: flag help | auto |
 | HELP-4 | `-h` ignores whatever else is passed | done | `parse_args`, `resolve_command` | auto |
 | HELP-5 | Don't overload `-h` | done | An app `-h` leaves help on `--help` only | check |
 | HELP-6 | `help` & `help <command>` | done | `help [NAME...]` on every group | auto |
-| HELP-7 | Support path in the top-level help | partial | `epilog`; crash hint has the URL | auto |
-| HELP-8 | Link help to web docs, per subcommand | partial | `epilog` only | interface |
+| HELP-7 | Support path in the top-level help | done | `LEARN MORE:` `Issues`; crash hint | auto |
+| HELP-8 | Link help to web docs, per subcommand | done | `docs=` under `LEARN MORE:` | interface |
 | HELP-9 | Lead with examples | done | `Command.format_help`; kit: `examples=` on the root | auto |
-| HELP-10 | Examples build up, show output | partial | One-line examples only | check |
+| HELP-10 | Examples build up, show output | done | Multi-line `examples=` show output | interface |
 | HELP-11 | Cheat sheet or web page for many examples | gap | None | out |
 | HELP-12 | Tutorial for complex integrations | gap | None | out |
 | HELP-13 | Common flags & commands first | done | Definition order kept | check |
-| HELP-14 | Bold headings, safe when piped | partial | Upper-case headings, no bold | auto |
+| HELP-14 | Bold headings, safe when piped | done | Bold where the console is styled | auto |
 | HELP-15 | Suggest a likely correction | done (click) | Did-you-mean, commands & options | auto |
-| HELP-16 | Offer to run the correction | gap | Suggestion only | interface |
+| HELP-16 | Offer to run the correction | gap | Suggestion only; running it is unsafe | out |
 | HELP-17 | Never silently run the corrected command | done (click) | No abbreviations | auto |
-| HELP-18 | Pipe expected, STDIN a TTY: help & exit | partial | `secret('-')` refuses | interface |
+| HELP-18 | Pipe expected, STDIN a TTY: help & exit | done | `click.File` refuses `-` | interface |
 
 ## Documentation
 
@@ -100,24 +100,24 @@ library's reach.
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | ERR-1 | Rewrite expected errors for humans | done | `errors=` with `hint` | interface |
-| ERR-2 | High signal-to-noise ratio | partial | Tracebacks hidden for `errors=` | check |
+| ERR-2 | High signal-to-noise ratio | done | `errors=`; kit `samples=`: traceback | interface |
 | ERR-3 | Group similar errors under one header | done | `notice(items=)` | interface |
 | ERR-4 | Most important information last | done | Hints & the `--help` pointer print last | auto |
 | ERR-5 | Red sparingly | done | `notice` prefix only | auto |
 | ERR-6 | Traceback & bug instructions when unexpected | done | `_run._failed` | auto |
 | ERR-7 | Debug log to a file | done | `<PROG>_LOG_FILE`; `test_log_file_*` | auto |
-| ERR-8 | Pre-filled bug report URL | partial | Plain `Issues` URL | auto |
+| ERR-8 | Pre-filled bug report URL | done | `bug_hint`: pre-filled new-issue URL | auto |
 
 ## Arguments and flags
 
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
-| ARG-1 | Prefer flags to arguments | gap | Unchecked (kit, 1.0) | check |
+| ARG-1 | Prefer flags to arguments | done | Kit: typed argument | check |
 | ARG-2 | Full-length version of every flag | done | Kit: a flag with no long form | check |
-| ARG-3 | One-letter flags for common options only | gap | Unchecked | check |
-| ARG-4 | Several arguments for several files | partial (click) | `nargs=-1` | interface |
-| ARG-5 | Two or more differing arguments is a warning sign | gap | Unchecked (kit, 1.0) | check |
-| ARG-6 | Standard names where a standard exists | partial | Kit: `-f` not `--force` | check |
+| ARG-3 | One-letter flags for common options only | done | Kit: non-standard short | check |
+| ARG-4 | Several arguments for several files | done (click) | `nargs=-1`; no globbing | interface |
+| ARG-5 | Two or more differing arguments is a warning sign | done | Kit: differing types | check |
+| ARG-6 | Standard names where a standard exists | done | Kit: `-f`; long with other short | check |
 | ARG-6a | Standard names: `-a`, `-f`, `-n`, `--json` | done | `pyclig.options`; kit | interface |
 | ARG-6b | Standard names: `-d`, `-h`, `--version` | done | Run flags; `-v` means version | auto |
 | ARG-6c | Standard names: `--no-input` | done | `_flags.NO_INPUT` | auto |
@@ -131,8 +131,8 @@ library's reach.
 | ARG-11b | Severe danger: type the name, `--confirm=name` | done | `confirm_name` | interface |
 | ARG-12 | Watch for implicit destruction | gap | Application concern | out |
 | ARG-13 | `-` for STDIN & STDOUT | done (click) | `click.File` | interface |
-| ARG-14 | A word like `none` for an optional value | gap | No type | interface |
-| ARG-15 | Order independence | partial | Run flags anywhere; `-v` at the root only | check |
+| ARG-14 | A word like `none` for an optional value | done | `options.NoneOr` | interface |
+| ARG-15 | Order independence | done | Run flags & `-v` anywhere | auto |
 | ARG-16 | No secrets from flags; file or STDIN | done | Kit; `options.secret` | check |
 
 ## Interactivity
@@ -143,7 +143,7 @@ library's reach.
 | INT-2 | `--no-input` fails & names the flag | done | Names `--force` or the option | auto |
 | INT-3 | Hide a password as it is typed | done (click) | `hide_input` | interface |
 | INT-4 | Make it clear how to exit | gap | No hint | out |
-| INT-5 | Ctrl-C works during network I/O | partial | Blocking Windows calls delay it | interface |
+| INT-5 | Ctrl-C works during network I/O | done | `ctx.cleanup` watcher; `recv` test | interface |
 | INT-6 | Document the escape for wrappers | gap | Application concern | out |
 
 ## Subcommands
@@ -152,30 +152,30 @@ library's reach.
 | --- | --- | --- | --- | --- |
 | SUB-1 | Subcommands for complexity | done (click) | `pyclig.group` | out |
 | SUB-2 | Shared flags, config & storage | done | Run flags, `GlobalOption`, `Config` | interface |
-| SUB-3 | Same flag names & output format | partial | Kit: plain click child; `ctx.emit` | check |
-| SUB-4 | Consistent naming, noun-verb order | gap | Unchecked | check |
-| SUB-5 | No confusable names | gap | Unchecked | check |
+| SUB-3 | Same flag names & output format | done | Kit: flag short & kind; `ctx.emit` | check |
+| SUB-4 | Consistent naming, noun-verb order | done | Kit: mixed `-` & `_`, upper case | check |
+| SUB-5 | No confusable names | done | Kit: confusable sibling names | check |
 
 ## Robustness
 
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | ROB-1 | Validate early with a clear error | done (click) | Types, `UsageError` | interface |
-| ROB-2 | Print within 100 ms; say so before network | partial | Import about 60 ms | check |
+| ROB-2 | Print within 100 ms; say so before network | done | Import-time test | interface |
 | ROB-3 | Progress or an ETA for long work | done | `progress` | interface |
-| ROB-4 | Parallel without interleaving | partial | Atomic prints | interface |
+| ROB-4 | Parallel without interleaving | done | Atomic prints; threaded `items=` | interface |
 | ROB-5 | Hide logs on success, show on failure | done | `ctx.logs_on_failure` | interface |
 | ROB-6 | Configurable network timeouts | done | `options.timeout()` | interface |
 | ROB-7 | Re-running resumes | gap | Application concern | out |
 | ROB-8 | Crash-only design | gap | Application concern | out |
-| ROB-9 | Expect misuse & odd environments | partial | `None` streams; per-run state | auto |
+| ROB-9 | Expect misuse & odd environments | done | Hostile-environment matrix test | auto |
 
 ## Future-proofing
 
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | FUT-1 | Keep changes additive | gap | Policy; the roadmap is additive | out |
-| FUT-2 | Warn before a breaking change | partial (click) | `deprecated=` | interface |
+| FUT-2 | Warn before a breaking change | done | `warning: ... is deprecated - REASON` | interface |
 | FUT-3 | Scripts use `--plain` or `--json` | done | Per-command format flags | interface |
 | FUT-4 | No catch-all subcommand | done (click) | None | check |
 | FUT-5 | No arbitrary abbreviations | done (click) | None | check |
@@ -208,17 +208,17 @@ library's reach.
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | ENV-1 | Env vars for contextual behaviour | done (click) | `envvar=` | interface |
-| ENV-2 | Portable names | gap | Unchecked | check |
+| ENV-2 | Portable names | done | Kit: `envvar` name pattern | check |
 | ENV-3 | Single-line values | gap | Unchecked | out |
-| ENV-4 | Don't reuse common names | gap | Unchecked | check |
+| ENV-4 | Don't reuse common names | done | Kit: common variable names | check |
 | ENV-5 | `NO_COLOR` & `FORCE_COLOR` | done | `FORCE_COLOR` means colour only | auto |
 | ENV-6 | `DEBUG` | done | `<PROG>_DEBUG`; `test_debug_variable_turns_on_debug_logging` | auto |
 | ENV-7 | `EDITOR` | done (click) | `click.edit` | interface |
 | ENV-8 | Proxy variables | gap | HTTP library's job | out |
 | ENV-9 | `SHELL`, `TMPDIR`, `HOME` | gap | Standard library or application | out |
-| ENV-10 | `TERM`, `TERMINFO`, `TERMCAP` | partial (rich) | `TERM` only | auto |
+| ENV-10 | `TERM`, `TERMINFO`, `TERMCAP` | done (rich) | `TERM=dumb` is plain; ANSI only | auto |
 | ENV-11 | `PAGER` | done (click) | `echo_via_pager` | interface |
-| ENV-12 | `LINES` & `COLUMNS` | partial (rich) | `COLUMNS` | auto |
+| ENV-12 | `LINES` & `COLUMNS` | done (rich) | `LINES` & `COLUMNS` size the console | auto |
 | ENV-13 | Read a local `.env` | done | `Config(dotenv=True)`; `read_dotenv` | interface |
 | ENV-14 | `.env` is not a config file | done | Fills `envvar=` only, never `os.environ` | auto |
 | ENV-15 | No secrets from env vars | done | Kit: a `_TOKEN`-like `envvar=`; `.env` skips | check |
@@ -243,8 +243,17 @@ library's reach.
 ## Checked by the kit
 
 `pyclig.testing.check` & `assert_conforms` report these rows, by ID, without running a command
-body: HELP-1, HELP-3, HELP-9, BAS-2, BAS-5, ARG-2, ARG-6, ARG-16, ENV-15 & SUB-3. A finding the
-application accepts is silenced with `ignore={"ARG-16": "reason"}`; the reason is required.
+body: HELP-1, HELP-3, HELP-9, BAS-2, BAS-5, ARG-1, ARG-2, ARG-3, ARG-5, ARG-6, ARG-16, ENV-2,
+ENV-4, ENV-15, SUB-3, SUB-4 & SUB-5. A finding the application accepts is silenced with
+`ignore={"ARG-16": "reason"}`; the reason is required.
+
+With `samples=[["list", "--json"], ...]` the kit also runs each command line for real and reports:
+
+- BAS-4: a non-zero exit, or `--json` output that is not JSON.
+- BAS-5: a STDOUT line that starts with `error:` or `warning:`.
+- ERR-2: a traceback on STDERR.
+
+Samples are opt-in and never taken from `examples=`, which would do real work.
 
 ## Delivered in 0.3.0
 
@@ -274,3 +283,41 @@ own signal handlers, so Ctrl-C says so at once and `SIGTERM` exits 143; `ctx.cle
 clean-up. ERR-7's owner became `auto`: `<PROG>_LOG_FILE` needs no code in the application. INT-5
 stays `partial`: a blocking Windows call delays Ctrl-C until it returns, and no whole-run watcher
 was added. No kit check was added, so consumers get no new findings.
+
+## Delivered in 0.7.0
+
+Every row is now `done`, or owned `out`. These rows moved to `done`:
+
+- Kit, static: ARG-1, ARG-3, ARG-5, ARG-6, SUB-3, SUB-4, SUB-5, ENV-2 & ENV-4.
+- Kit, `samples=`: BAS-4 & ERR-2; BAS-5's evidence widened to real runs.
+- Robustness: ROB-2, ROB-4, ROB-9 & INT-5.
+- Arguments: ARG-4, ARG-14, ARG-15, HELP-18 & FUT-2.
+- Help: HELP-3, HELP-7, HELP-8, HELP-10 & HELP-14.
+- Environment & errors: ENV-10, ENV-12 & ERR-8.
+
+Owner changes:
+
+- ROB-2, HELP-10 & ERR-2 became `interface`: the application chooses what it imports, which
+  examples it writes & which exceptions it expects.
+- ARG-15 became `auto`: `-v/--version` is a global option, so no application code is involved.
+- HELP-16 is owned `out`. CLIG says a tool can offer to run the correction, then warns that doing
+  so is dangerous; suggesting it (HELP-15) and never running it (HELP-17) are both `done`.
+
+Kit: new findings. The static rules are on by default, so a bare `assert_conforms(cli)` that
+passed under 0.6 may fail once the pin is raised. Fix the finding, or accept it with
+`ignore={"ARG-3": "reason"}`.
+
+INT-5 closes on `ctx.cleanup(timeout=)`: its watcher prints the notice at once and bounds the
+exit while the main thread sits in a blocking call. ENV-10 closes on `TERM=dumb`; pyclig emits
+ANSI only, so `TERMINFO` & `TERMCAP` do not apply.
+
+## Known limits
+
+- Run flags are not applied when parsing fails before them: `--no-color --bogus` may print red.
+- `click.Path(allow_dash=True)` is not guarded against a terminal STDIN; `click.File` &
+  `options.secret` are.
+- A variable derived from `auto_envvar_prefix` is invisible to ENV-2 & ENV-4, which read
+  `envvar=`.
+- A deprecated parameter's flag is lowered while it is parsed, so one CLI object parsed in two
+  threads at once could print click's own line.
+- macOS is unverified: the tests run on Windows & Linux.
