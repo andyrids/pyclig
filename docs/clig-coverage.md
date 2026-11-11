@@ -15,7 +15,7 @@ file is shared under the same licence.
 
 CLIG is the requirement. Every actionable rule has a row here, and the IDs are the one namespace
 shared by `pyclig.testing.assert_conforms`, `docs/roadmap.md` and the CHANGELOG. Status is as of
-0.7.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
+1.0.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
 so it stays true across line moves.
 
 Status: `done` means pyclig delivers it, `done (click)` or `done (rich)` that a dependency does;
@@ -161,7 +161,7 @@ library's reach.
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | ROB-1 | Validate early with a clear error | done (click) | Types, `UsageError` | interface |
-| ROB-2 | Print within 100 ms; say so before network | done | Import budget test | interface |
+| ROB-2 | Print within 100 ms; say so before network | done | Import share budget test | interface |
 | ROB-3 | Progress or an ETA for long work | done | `progress` | interface |
 | ROB-4 | Parallel without interleaving | done | Atomic prints; threaded `items=` | interface |
 | ROB-5 | Hide logs on success, show on failure | done | `ctx.logs_on_failure` | interface |
@@ -174,7 +174,7 @@ library's reach.
 
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
-| FUT-1 | Keep changes additive | gap | Policy; the roadmap is additive | out |
+| FUT-1 | Keep changes additive | gap | Policy; `tests/test_api.py` locks pyclig's own API | out |
 | FUT-2 | Warn before a breaking change | done | `warning: ... is deprecated - REASON` | interface |
 | FUT-3 | Scripts use `--plain` or `--json` | done | Per-command format flags | interface |
 | FUT-4 | No catch-all subcommand | done (click) | None | check |
@@ -255,6 +255,10 @@ With `samples=[["list", "--json"], ...]` the kit also runs each command line for
 
 Samples are opt-in and never taken from `examples=`, which would do real work.
 
+These 19 IDs are frozen from 1.0: none is removed, renamed or split in 1.x. A rule added after 1.0
+is opt-in, so a bare `assert_conforms(cli)` that passes keeps passing. The one exception is a rule
+fixed to catch a case it missed, which the CHANGELOG lists under `Fixed` with its ID.
+
 ## Delivered in 0.3.0
 
 BAS-3, HELP-2, HELP-4, HELP-9, OUT-1, OUT-3, OUT-6, OUT-13a, OUT-13d, ERR-1, ERR-4, ARG-2, ARG-6c,
@@ -310,6 +314,19 @@ passed under 0.6 may fail once the pin is raised. Fix the finding, or accept it 
 INT-5 closes on `ctx.cleanup(timeout=)`: its watcher prints the notice at once and bounds the
 exit while the main thread sits in a blocking call. ENV-10 closes on `TERM=dumb`; pyclig emits
 ANSI only, so `TERMINFO` & `TERMCAP` do not apply.
+
+## Delivered in 1.0.0
+
+The API freeze: no row was added and none changed status. The public names, signatures, class
+members, exit codes & kit rule IDs are recorded in `tests/api.txt`, and `tests/test_api.py` fails
+when they change - FUT-1's evidence for pyclig itself; the row stays `gap` & `out`, because the
+rule is about the application's interface.
+
+- ARG-11a & ARG-11b: the rows' evidence is unchanged in wording, but `confirm_name` now names
+  both halves - the factory `options.confirm_name()` & the function `confirm_name` - as
+  `options.force()` feeds `confirm`. This rename is the one breaking change.
+- ROB-2: the evidence names what the test measures, pyclig's own share of the import.
+- Kit: no new findings, and `samples=` runs now clear `TTY_INTERACTIVE` as `invoke` does.
 
 ## Known limits
 

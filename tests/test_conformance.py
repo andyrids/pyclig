@@ -8,7 +8,7 @@ import click
 import pytest
 
 import pyclig
-from pyclig import Group, _conformance
+from pyclig import ExitCode, Group, _conformance
 from pyclig.testing import Finding, assert_conforms, check
 
 COVERAGE = Path(__file__).parents[1] / "docs" / "clig-coverage.md"
@@ -407,6 +407,21 @@ def test_samples_clear_the_run_variables(
     monkeypatch.setenv("TESTS_DEBUG", "1")
     monkeypatch.setenv("FORCE_COLOR", "1")
     assert check(runs, samples=[["show"]]) == []
+
+
+def test_samples_clear_tty_interactive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Assert a developer's `TTY_INTERACTIVE` does not reach a sample."""
+
+    @pyclig.command("live", examples=["live"])
+    @pyclig.pass_context
+    def live(ctx: pyclig.Context) -> int:
+        """Fail where STDERR claims to be interactive."""
+        return ExitCode.FAILURE if ctx.err.is_interactive else ExitCode.OK
+
+    monkeypatch.setenv("TTY_INTERACTIVE", "1")
+    assert check(live, samples=[[]]) == []
 
 
 def test_own_help_spelling_is_not_probed() -> None:

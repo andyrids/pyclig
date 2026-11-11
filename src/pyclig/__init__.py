@@ -20,6 +20,7 @@ from pyclig._core import (
 from pyclig._exit import ExitCode
 from pyclig._flags import GlobalOption
 from pyclig._output import (
+    Level,
     hanging,
     hint,
     info,
@@ -29,14 +30,18 @@ from pyclig._output import (
     status,
     summary,
 )
+from pyclig._run import Errors, Format
 
 __all__: list[str] = [
     "Command",
     "Config",
     "Context",
+    "Errors",
     "ExitCode",
+    "Format",
     "GlobalOption",
     "Group",
+    "Level",
     "command",
     "confirm",
     "confirm_name",

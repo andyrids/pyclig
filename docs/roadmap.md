@@ -11,7 +11,9 @@ tags: [CLI, CLIG, roadmap]
 Every item closes rows of `docs/clig-coverage.md`, by ID, and is additive: 0.3.0 locked the
 interfaces a later rule would otherwise have had to break (the runner on `Command`, run flags
 through `GlobalOption`, `ctx.format`, `ctx.can_prompt`, honest consoles, the `hint` & `exit_code`
-attributes). A release may ship fewer items than listed, never a breaking one.
+attributes). A release may ship fewer items than listed, never a breaking one - with one approved
+exception: 1.0.0 renamed `options.confirm` to `options.confirm_name`, before the freeze made the
+name permanent.
 
 ## 0.4 - output and feedback (delivered in 0.4.0)
 
@@ -68,6 +70,16 @@ attributes). A release may ship fewer items than listed, never a breaking one.
 Every row is now `done`, or owned `out`. ARG-1, ARG-5, SUB-4 & SUB-5 are static kit rules, not
 `samples=` ones as first planned: they need no run.
 
-## 1.0 - API freeze
+## 1.0 - API freeze (delivered in 1.0.0)
 
-- No new rows: the public names, signatures & kit rule IDs of 0.7 are frozen
+- No new rows: the public names, signatures & kit rule IDs of 0.7 are frozen, recorded in
+  `tests/api.txt` & checked by `tests/test_api.py`
+- The one approved break: `options.confirm` is `options.confirm_name`, so each factory shares a
+  name with the function it feeds - `force` with `confirm`, `confirm_name` with `confirm_name`
+- `Format`, `Level` & `Errors`, the aliases in the public signatures, are exported
+- The README states what is API, what is not, the kit policy & the support floors (Stability)
+
+## After 1.0
+
+Additions only: a breaking change needs 2.0. A kit rule added after 1.0 is opt-in; `since=` &
+scoped ignore keys arrive with the first such rule, not before it.

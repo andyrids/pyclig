@@ -16,6 +16,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > - `Fixed` for any bug fixes.
 > - `Security` in case of vulnerabilities.
 
+## [1.0.0] - 2026-11-11
+
+### Added
+
+- `pyclig.Format`, `pyclig.Level` & `pyclig.Errors`: the aliases the public signatures use
+- `pyclig.options.__all__`: `from pyclig.options import *` gives the factories & `NoneOr` only
+- Stability: the README states what is API, the kit policy & the support floors; `tests/api.txt`
+  records the API & a test fails when it changes
+
+### Changed
+
+- **Breaking:** `options.confirm()` is renamed `options.confirm_name()`, pairing it with
+  `pyclig.confirm_name` as `options.force()` pairs with `pyclig.confirm`. To migrate, replace
+  `@pyclig.options.confirm()` with `@pyclig.options.confirm_name()`; the flag `--confirm NAME` &
+  the parameter `confirmed` are unchanged, and there is no alias
+- `options.timeout` takes `help`, `default` & `envvar` in the order of `output`, `port` & `user`;
+  all three are keyword-only, so no call changes
+- Development Status is `5 - Production/Stable`
+
+### Fixed
+
+- The kit clears `TTY_INTERACTIVE`, as `testing.invoke` does, so a developer's shell cannot
+  change a finding
+
 ## [0.7.0] - 2026-11-11
 
 ### Added

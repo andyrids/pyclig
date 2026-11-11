@@ -864,3 +864,92 @@ height of 7.
 After merging, `test_child_timeout_bounds_the_cleanup` (from 0.6.0) failed once on Linux 3.11 in
 CI on #16, with STDERR only `warning: interrupted`, and passed on re-run: a pre-existing timing
 flake, not touched by 0.7.0. Released as v0.7.0 on 11 November 2026.
+
+## Round 8 - the API freeze
+
+Date: 11 November 2026. `docs/plan-1.0.0.md` set eight items to freeze the 0.7 API, with one
+approved break; `feat/api-freeze` ships them in nine commits (`9351025` to `3f01a1e`) after the
+plan (`36a703f`). One Fable 5.2 implementer worked one phase per message (P1-P4, about 122k
+tokens), and the mediator reviewed each phase's diff and re-ran the gate before the next.
+Consumers ran unmodified in fresh clones from their remotes, on their locked 0.7.0 and then on a
+wheel of the branch (`SETUPTOOLS_SCM_PRETEND_VERSION=1.0.0`) installed with `--no-deps`.
+
+| Repository | Tests | Notes |
+| --- | --- | --- |
+| pyclig | 561 passed, 15 skipped, 97% | 3.11, 3.13 & 3.14; mypy 3.11 & 3.14 & prek clean |
+| pkgdx (fresh, `main` `67bbe3e`) | 242 on 0.7.0; 242 on the wheel | As predicted: no findings |
+| dkais (fresh, `develop` `241cff8`) | 147 on 0.7.0; 147 on the wheel | As predicted: ARG-3 ignored |
+| template `v0.8.0`, generated `cli=True` | 5 on 0.7.0; 5 on the wheel | As predicted: no findings |
+| pkgdx 0.12.0 from PyPI on the wheel | `--help` exit 0 | Kit clean |
+
+### Verdict on the 1.0.0 items
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| 1 API lock | Confirmed; S1 | `test_public_api_is_frozen`, passing on `v0.7.0`'s `src/` |
+| 2 `options.__all__` | Confirmed | `test_star_import_gives_only_the_factories` |
+| 3 `Format`, `Level`, `Errors` | Confirmed | `test_signature_types_are_exported` |
+| 4 `timeout` keyword order | Confirmed | The lock's one changed line |
+| 5 kit clears `TTY_INTERACTIVE` | Confirmed | `test_samples_clear_tty_interactive` |
+| 6 internal keywords | Confirmed | Docstrings only, by design |
+| 7 `options.confirm_name` | Confirmed; S2 | `test_confirm_name_factory_replaces_confirm` |
+| 8 docs & classifier | Confirmed; S3 by the maintainer | 145 rows, statuses unchanged |
+
+API diff: the branch's lock, run on `v0.7.0`'s `src/`, reports exactly the approved changes -
+`Errors`, `Format`, `Level` & `options.confirm_name` new, `options.confirm` gone and
+`options.timeout` reordered - and nothing else. `tests/api.txt` holds 107 entries and 19 rule
+IDs, and renders byte-identically on 3.11 and 3.14.
+
+Reversion: for each of the five commits that change `src/` behaviour, its tests ran with that
+change undone on `HEAD`. Every one has failing tests; undoing the rename also fails collection of
+`test_core.py`. `options.__all__` was removed by hand, because the rename edits the same lines.
+Guards by design: the lock passes without `__all__`, which shows `__all__` equals the 0.7 public
+names, and the docstring commit has no test.
+
+Design rules:
+
+- `import pyclig` loads none of `importlib.metadata`, `rich.traceback`, `rich.logging`,
+  `_conformance`, `socket`, `urllib.parse` or `platform`.
+- The wheel is 1.0.0 with Development Status 5, ships no `tests/`, and its runtime dependencies are
+  unchanged (`click~=8.5`, `rich~=15.0`, Python >= 3.11).
+
+Start-up, median of 15 in the dkais clone (0.7.0 → wheel): `import pyclig` 121 → 120 ms,
+`dkais --help` 170 → 167 ms, `dkais -v` 169 → 168 ms. Within noise.
+
+### Defects found in 1.0.0
+
+1. In review of P1, the lock named exported classes by their private module
+   (`pyclig._config.Config`, `pyclig._core.Context`), so moving a class between `_` modules - not
+   API under Stability - would have read as a change. `535086a` names them by their public path.
+2. The template amendment draft was first written against pyclig's v2.4.0 copy and appended a
+   bullet; checked against template `v0.8.0`, it now replaces the "Raising the pyclig pin to 0.7"
+   bullet at `:216-217`.
+
+### Departures from the 1.0.0 plan
+
+- `options.__all__` has 12 names (11 factories & `NoneOr`), not "12 factories and NoneOr".
+- The lock also records return annotations and class attributes (`context_class`, `group_class`).
+- The ARG-11a & ARG-11b evidence cells are unchanged in wording, which the line length left no
+  room for; "Delivered in 1.0.0" describes the pairing.
+- The rename's docstring names the `force()` / `pyclig.confirm` pairing too.
+
+### Remaining after 1.0.0
+
+- pyclig's own `docs/guidance/standard-cli.md:107` (immutable, v2.4.0) still names
+  `options.confirm`; a Copier update after the template release refreshes it.
+- Deferred by the plan: `since=` & scoped ignore keys, the `_announced` thread race, macOS,
+  exporting `ConfigError`, import timing on a WSL-mounted drive, the
+  `test_child_timeout_bounds_the_cleanup` CI flake, and `develop` versioning as `0.2.1.devN`.
+
+### Consumer transitions (drafts, unfiled)
+
+Every consumer pins `~=0.x`, so none accepts 1.0.0 until its pin is raised; none needs a code
+change.
+
+1. **pkgdx, first:** raise `pyproject.toml:30` to `pyclig~=1.0`, release 0.13.0.
+2. **Template, after pkgdx 0.13.0:** `template/pyproject.toml.jinja:23` `pyclig~=1.0` & `:27`
+   `pkgdx~=0.13`; `tests/test_template.py:265` (it fails until updated) & `pyproject.toml:45`; the
+   `standard-cli.md` amendment (`:116` & `:216-217`, version 2.6.0); release.
+3. **dkais, after pkgdx 0.13.0:** `pyproject.toml:29` `pyclig~=1.0` & `:36` `pkgdx~=0.13`; `uv
+   sync` (its `.venv` holds pyclig 0.4.0), re-lock; then the Copier update.
+4. **cotravel, last:** re-lock, then the Copier update.
