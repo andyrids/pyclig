@@ -5,6 +5,8 @@ import logging
 import os
 import subprocess
 import sys
+import types
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -630,3 +632,115 @@ def test_run_honours_no_color_variable(
     assert code == 1
     assert "\x1b[1;31m" not in stderr
     assert "\x1b[1merror:" in stderr
+
+
+def _install(site: Path, metadata: str) -> None:
+    """Lay out an installed `fast_app` package under `site`."""
+    package = site / "fast_app"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text(_FAST_APP, encoding="utf-8")
+    info = site / "Fast.App-1.0.dist-info"
+    info.mkdir()
+    (info / "METADATA").write_text(metadata, encoding="utf-8")
+
+
+_FAST_APP = '''
+import click
+
+import pyclig
+
+
+@pyclig.command("fast")
+def main() -> None:
+    """Start fast."""
+'''
+
+_HEADERS = "Metadata-Version: 2.4\nName: Fast.App\nVersion: 1.0\n"
+
+
+@pytest.mark.parametrize(
+    ("headers", "url"),
+    [
+        (
+            (
+                "Project-URL: Homepage, https://x.test/fast\n"
+                "Project-URL: Bug Tracker, https://x.test/fast/bugs\n"
+                "Project-URL: Issues, https://x.test/fast/later\n"
+            ),
+            "https://x.test/fast/bugs",
+        ),
+        ("project-url: issue-tracker,https://x.test/i\n", "https://x.test/i"),
+        (
+            "Project-URL: Issues,\n  https://x.test/folded\n",
+            "https://x.test/folded",
+        ),
+        ("Project-URL: Homepage, https://x.test/fast\n", None),
+        ("\nProject-URL: Issues, https://x.test/in-the-body\n", None),
+    ],
+    ids=["first-tracker", "label-variant", "folded", "no-tracker", "body"],
+)
+def test_project_url_read_from_installed_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    headers: str,
+    url: str | None,
+) -> None:
+    """Assert the tracker is read from `METADATA` headers, without a scan.
+
+    NOTE: Once the distribution's `METADATA` is found its answer is final,
+    so `importlib.metadata` is not asked even when no tracker is named.
+    """
+    _install(tmp_path, f"{_HEADERS}{headers}\nThe description.\n")
+    module = types.ModuleType("fast_app")
+    module.__file__ = str(tmp_path / "fast_app" / "__init__.py")
+    monkeypatch.setitem(sys.modules, "fast_app", module)
+    monkeypatch.setattr(_run, "_distribution", lambda package: 1 / 0)
+    assert _run._project_url("fast_app") == url
+
+
+def test_project_url_falls_back_to_importlib(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Assert a package without a `dist-info` beside it is looked up as before."""
+    module = types.ModuleType("fast_app")
+    module.__file__ = str(tmp_path / "fast_app" / "__init__.py")
+    monkeypatch.setitem(sys.modules, "fast_app", module)
+    monkeypatch.setattr(_run, "_distribution", lambda package: "pyclig")
+    assert _run._project_url("fast_app") == (
+        "https://github.com/andyrids/pyclig/issues"
+    )
+    assert _run._project_url("never_imported") == (
+        "https://github.com/andyrids/pyclig/issues"
+    )
+
+
+def test_root_help_of_an_installed_app_skips_importlib_metadata(
+    tmp_path: Path,
+) -> None:
+    """Assert `--help` prints `Issues` without importing `importlib.metadata`."""
+    _install(
+        tmp_path,
+        f"{_HEADERS}Project-URL: Issues, https://x.test/fast/issues\n",
+    )
+    env = sample_env()
+    env["PYTHONPATH"] = os.pathsep.join([str(tmp_path), env["PYTHONPATH"]])
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-X",
+            "importtime",
+            "-c",
+            "from fast_app import main; main()",
+            "--help",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+    )
+    assert result.returncode == 0
+    assert (
+        "LEARN MORE:\n  Issues  https://x.test/fast/issues\n" in result.stdout
+    )
+    assert "click" in result.stderr
+    assert "importlib.metadata" not in result.stderr

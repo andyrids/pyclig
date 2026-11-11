@@ -396,15 +396,78 @@ def _distribution(package: str) -> str:
     return package
 
 
+def _normalised(name: str) -> str:
+    """Return a distribution name as `dist-info` directories compare it."""
+    return re.sub(r"[-_.]+", "_", name).lower()
+
+
+def _installed_urls(package: str) -> list[str] | None:
+    """Return the `Project-URL` headers of `package`, read from its files.
+
+    NOTE: Root help prints the bug tracker, and importing
+    `importlib.metadata` costs about as much as the rest of `--help`. An
+    installed package sits beside its `NAME-VERSION.dist-info`, so the
+    headers of that `METADATA` are read as text, up to the first blank
+    line. Only a distribution named like the package is found here.
+
+    Args:
+        package: The import package name, already imported.
+
+    Returns:
+        The header values, or None when no `METADATA` is found beside the
+        package: an editable install, a zip or a differently named
+        distribution, which `importlib.metadata` resolves.
+    """
+    origin = getattr(sys.modules.get(package), "__file__", None)
+    if not origin:
+        return None
+    module = Path(origin)
+    site = module.parent
+    if module.stem == "__init__":
+        site = site.parent
+    try:
+        infos = [
+            entry.name
+            for entry in os.scandir(site)
+            if entry.name.endswith(".dist-info")
+            and _normalised(entry.name.partition("-")[0])
+            == _normalised(package)
+        ]
+        if len(infos) != 1:
+            return None
+        text = (site / infos[0] / "METADATA").read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError:
+        return None
+    urls: list[str] = []
+    folding = False
+    for line in text.splitlines():
+        if not line.strip():
+            break
+        if line[0] in " \t":
+            if folding:
+                urls[-1] += line.strip()
+            continue
+        name, _, value = line.partition(":")
+        folding = name.lower() == "project-url"
+        if folding:
+            urls.append(value.strip())
+    return urls
+
+
 def _project_url(package: str) -> str | None:
     """Return the bug tracker `Project-URL` of the `package` distribution."""
-    from importlib import metadata
+    entries = _installed_urls(package)
+    if entries is None:
+        from importlib import metadata
 
-    try:
-        dist = metadata.metadata(_distribution(package))
-    except metadata.PackageNotFoundError:
-        return None
-    for entry in dist.get_all("Project-URL") or []:
+        try:
+            dist = metadata.metadata(_distribution(package))
+        except metadata.PackageNotFoundError:
+            return None
+        entries = dist.get_all("Project-URL") or []
+    for entry in entries:
         label, _, url = entry.partition(",")
         if re.sub(r"[^a-z0-9]", "", label.lower()) in _ISSUE_LABELS:
             return str(url).strip()
