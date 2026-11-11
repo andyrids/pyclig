@@ -49,7 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `> NUL` on Windows is no longer taken for a terminal: output is plain & `< NUL` cannot prompt
 - An empty `PYTHONIOENCODING` is treated as unset, so redirected output stays UTF-8
-- Root `--help` reads the `Issues` URL without importing `importlib.metadata`
 
 ## [0.6.0] - 2026-11-10
 
