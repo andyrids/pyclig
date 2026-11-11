@@ -97,7 +97,8 @@ def test_no_args_is_help_prints_concise_help_to_stderr(sample: Group) -> None:
         "  Process sample items.",
     ]
     assert lines[-1] == "Try 'sample process --help' for more information."
-    assert "OPTIONS:" not in lines
+    assert lines[lines.index("OPTIONS:") + 1] == "  --start YEAR"
+    assert "GLOBAL OPTIONS:" not in lines
     assert "error:" not in result.stderr
 
 

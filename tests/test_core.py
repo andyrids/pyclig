@@ -1764,3 +1764,40 @@ def test_deprecated_parameter_silent_while_completing(
     with new.make_context("new", ["--fast"], resilient_parsing=True):
         pass
     assert capsys.readouterr().err == ""
+
+
+def _concise(count: int) -> str:
+    """Return the concise help of a command with `count` visible options."""
+
+    @pyclig.command("few", examples=["few --opt-0 x"], no_args_is_help=True)
+    @click.option("--secret", hidden=True)
+    @click.option("--trace", cls=pyclig.GlobalOption, callback=print)
+    def few(**kwargs: Any) -> None:
+        """Take a few options."""
+
+    for index in range(count):
+        few.params.append(click.Option([f"--opt-{index}"], help="An option."))
+    result = invoke(few)
+    assert result.exit_code == pyclig.ExitCode.USAGE
+    return result.stderr
+
+
+@pytest.mark.parametrize("count", [1, 6])
+def test_concise_help_lists_a_few_options(count: int) -> None:
+    """Assert concise help lists 1 to 6 own options after the examples."""
+    lines = _concise(count).splitlines()
+    start = lines.index("OPTIONS:")
+    assert lines.index("EXAMPLES:") < start
+    assert lines[start + 1 : start + 1 + count] == [
+        f"  --opt-{index} TEXT  An option." for index in range(count)
+    ]
+    assert lines[start + 1 + count] == ""
+    assert lines[-1] == "Try 'few --help' for more information."
+    for absent in ("--secret", "--trace", "--help", "--debug", "--version"):
+        assert absent not in "\n".join(lines[:-1])
+
+
+@pytest.mark.parametrize("count", [0, 7])
+def test_concise_help_omits_no_or_many_options(count: int) -> None:
+    """Assert concise help has no `OPTIONS:` for none or more than 6."""
+    assert "OPTIONS:" not in _concise(count)

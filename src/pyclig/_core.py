@@ -499,6 +499,10 @@ def _prompt(
         return prompt(ctx)
 
 
+_CONCISE_OPTIONS = 6
+"""The most options of its own a command lists in its concise help."""
+
+
 def _names_stdin(value: object) -> bool:
     """Return whether a raw value, or any value nested in it, is `-`."""
     if isinstance(value, (tuple, list)):
@@ -837,7 +841,7 @@ class Command(click.Command):
     def format_concise_help(
         self, ctx: click.Context, formatter: click.HelpFormatter
     ) -> None:
-        """Write the concise help: usage, description & examples.
+        """Write the concise help: usage, description, examples & options.
 
         Args:
             ctx: The command's context.
@@ -846,6 +850,31 @@ class Command(click.Command):
         self.format_usage(ctx, formatter)
         self.format_help_text(ctx, formatter)
         self.format_examples(ctx, formatter)
+        self.format_concise_options(ctx, formatter)
+
+    def format_concise_options(
+        self, ctx: click.Context, formatter: click.HelpFormatter
+    ) -> None:
+        """Write `OPTIONS:` when the command has only a few of its own.
+
+        NOTE: The guidelines ask concise help for the most common flags; a
+        short list is all of them, a long one is left to `--help`. Global
+        options, hidden ones & `--help` itself are never listed.
+
+        Args:
+            ctx: The command's context.
+            formatter: The help formatter.
+        """
+        records = [
+            record
+            for param in self.params
+            if isinstance(param, click.Option)
+            and not isinstance(param, GlobalOption)
+            and (record := param.get_help_record(ctx)) is not None
+        ]
+        if 0 < len(records) <= _CONCISE_OPTIONS:
+            with formatter.section("Options"):
+                formatter.write_dl(records)
 
     def main(
         self,
@@ -1081,6 +1110,7 @@ class Group(Command, click.Group):
         self.format_usage(ctx, formatter)
         self.format_commands(ctx, formatter)
         self.format_examples(ctx, formatter)
+        self.format_concise_options(ctx, formatter)
 
     def resolve_command(
         self, ctx: click.Context, args: list[str]
