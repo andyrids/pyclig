@@ -126,6 +126,7 @@ class Context(click.Context):
         Args:
             *args: Positional `click.Context` arguments.
             pyclig_state: The run's state, given to the root context.
+                Internal - set by `Command.main`, not part of the API.
             **kwargs: Keyword `click.Context` arguments.
         """
         parent = args[1] if len(args) > 1 else kwargs.get("parent")
@@ -1025,7 +1026,9 @@ class Command(click.Command):
             complete_var: The shell completion environment variable.
             standalone_mode: Ignored.
             windows_expand_args: Expand globs & variables on Windows.
-            **extra: Keyword `click.Context` arguments.
+            **extra: Keyword `click.Context` arguments. The `pyclig_*`
+                keys are internal, for `pyclig.testing.invoke`, and not
+                part of the API.
         """
         make_consoles = extra.pop("pyclig_consoles", _run.make_consoles)
         in_tty = extra.pop("pyclig_in_tty", None)
