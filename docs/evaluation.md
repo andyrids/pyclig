@@ -856,3 +856,11 @@ height of 7.
 1. `ac36bcf` & `2029108`: `test_init` imports `pathlib` before its baseline, and the help test
    drops `urllib.parse` below 3.12, with a NOTE. 3.11: 556 passed, 15 skipped.
 2. `5bc9a76`: the `Fixed` bullet removed from CHANGELOG.
+3. `4cebada`, after GitHub CI on #15: on Linux 3.11 & 3.12 click's `uuid` import loads
+   `platform`, and a Windows runner took 101 ms to import. The import tests now subtract a
+   baseline of what `pathlib`, click & rich load, and ROB-2 budgets what pyclig adds over its
+   dependencies (50 ms; measured 18-24 ms) instead of an absolute 100 ms.
+
+After merging, `test_child_timeout_bounds_the_cleanup` (from 0.6.0) failed once on Linux 3.11 in
+CI on #16, with STDERR only `warning: interrupted`, and passed on re-run: a pre-existing timing
+flake, not touched by 0.7.0. Released as v0.7.0 on 11 November 2026.
