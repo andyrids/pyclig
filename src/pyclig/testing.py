@@ -36,13 +36,7 @@ from pyclig._core import Command
 
 __all__: list[str] = ["Finding", "assert_conforms", "check", "invoke"]
 
-_CLEARED = (
-    "COLUMNS",
-    "FORCE_COLOR",
-    "NO_COLOR",
-    "TTY_COMPATIBLE",
-    "TTY_INTERACTIVE",
-)
+_CLEARED = _run.RICH_VARIABLES
 """Environment variables that change Rich's output, unset by default."""
 
 _PREFIXED = _run.RUN_VARIABLES
@@ -67,9 +61,9 @@ def invoke(
 
     NOTE: Live displays only animate with `interactive`, so output stays
     deterministic by default. The variables that change Rich's output &
-    the CLI's own `<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG` & `_PROFILE` are
-    unset unless `env` sets them. The application logger is restored when
-    the run ends.
+    the CLI's own `<PROG>_DEBUG`, `_NO_COLOR`, `_CONFIG`, `_PROFILE` &
+    `_LOG_FILE` are unset unless `env` sets them. The application logger
+    is restored when the run ends.
 
     Args:
         cli: The CLI - a `pyclig.Group` or a standalone `pyclig.Command`.

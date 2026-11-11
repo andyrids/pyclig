@@ -3,6 +3,7 @@
 import json
 import subprocess
 import sys
+from typing import get_args
 
 import pyclig
 from tests.conftest import DEPENDENCIES
@@ -108,3 +109,11 @@ def test_version() -> None:
     """Assert the installed package exposes a version string."""
     assert isinstance(pyclig.__version__, str)
     assert pyclig.__version__ != "0.0.0+unknown"
+
+
+def test_signature_types_are_exported() -> None:
+    """Assert the aliases the public signatures use can be imported."""
+    assert get_args(pyclig.Format) == ("human", "plain", "json")
+    assert get_args(pyclig.Level) == ("error", "warning")
+    assert pyclig.Errors == tuple[type[Exception], ...]
+    assert {"Errors", "Format", "Level"} <= set(pyclig.__all__)

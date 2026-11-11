@@ -144,6 +144,15 @@ def prefix_of(package: str) -> str:
 RUN_VARIABLES = ("DEBUG", "NO_COLOR", "CONFIG", "PROFILE", "LOG_FILE")
 """The `<PROG>_` variables a run reads."""
 
+RICH_VARIABLES = (
+    "COLUMNS",
+    "FORCE_COLOR",
+    "NO_COLOR",
+    "TTY_COMPATIBLE",
+    "TTY_INTERACTIVE",
+)
+"""The variables that change Rich's output, unset by a test runner."""
+
 
 def cleared(callback: object, prog: str) -> dict[str, None]:
     """Return the `<PROG>_` variables of a run, unset, for a test runner.

@@ -1501,7 +1501,7 @@ def sever_cli() -> None:
 
 @sever_cli.command()
 @pyclig.options.force()
-@pyclig.options.confirm()
+@pyclig.options.confirm_name()
 @pyclig.pass_context
 def drop(ctx: pyclig.Context, force: bool, confirmed: str | None) -> None:
     """Drop the `prod` database."""
