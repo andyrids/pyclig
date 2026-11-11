@@ -18,7 +18,13 @@ import pytest
 import pyclig
 from pyclig import Group, _run
 from pyclig.testing import invoke
-from tests.conftest import SAMPLE, InterruptingInput, RunSample, sample_env
+from tests.conftest import (
+    SAMPLE,
+    InterruptingInput,
+    RunSample,
+    dependency_modules,
+    sample_env,
+)
 
 # (args, message, failing command path)
 USAGE_ERRORS = [
@@ -755,10 +761,7 @@ def test_root_help_of_an_installed_app_skips_importlib_metadata(
     }
     assert "click" in imported
     forbidden = {"importlib.metadata", "urllib.parse", "platform"}
-    if sys.version_info < (3, 12):
-        # NOTE: Python 3.11's `pathlib` imports `urllib.parse` itself
-        forbidden.discard("urllib.parse")
-    assert not imported & forbidden
+    assert not imported & (forbidden - dependency_modules())
 
 
 @pyclig.command("leaky")

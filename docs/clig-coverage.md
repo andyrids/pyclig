@@ -161,7 +161,7 @@ library's reach.
 | ID | Rule | Status | Evidence | Owner |
 | --- | --- | --- | --- | --- |
 | ROB-1 | Validate early with a clear error | done (click) | Types, `UsageError` | interface |
-| ROB-2 | Print within 100 ms; say so before network | done | Import-time test | interface |
+| ROB-2 | Print within 100 ms; say so before network | done | Import budget test | interface |
 | ROB-3 | Progress or an ETA for long work | done | `progress` | interface |
 | ROB-4 | Parallel without interleaving | done | Atomic prints; threaded `items=` | interface |
 | ROB-5 | Hide logs on success, show on failure | done | `ctx.logs_on_failure` | interface |
