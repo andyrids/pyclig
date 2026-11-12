@@ -74,4 +74,4 @@ tmp_path_retention_policy = "failed"
 cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
 
 [tool.uv.workspace]
-members = ["examples/01-hello", "examples/02-errors", "examples/03-output", "examples/04-feedback"]
+members = ["examples/01-hello", "examples/02-errors", "examples/03-output", "examples/04-feedback", "examples/05-prompts"]
