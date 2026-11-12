@@ -70,6 +70,10 @@ may show its output on the lines after the invocation, which print indented unde
 help. The root's also lists `Issues`, the bug tracker in the distribution's `Project-URL`
 metadata.
 
+## Examples
+
+`examples/` holds six small uv workspace members, one feature each - see `examples/README.md`.
+
 ## What every command gets
 
 | Feature | Behaviour |
