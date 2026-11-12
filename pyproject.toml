@@ -45,7 +45,7 @@ requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
 
 [tool.coverage.run]
-omit = ["tests/*", "*/src_test*/*"]
+omit = ["tests/*", "*/src_test*/*", "examples/*"]
 
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/README.md", "/CHANGELOG.md"]
@@ -72,3 +72,6 @@ tmp_path_retention_policy = "failed"
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true } }]
+
+[tool.uv.workspace]
+members = ["examples/01-hello"]
