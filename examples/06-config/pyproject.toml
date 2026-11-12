@@ -1,0 +1,20 @@
+[project]
+name = "greeter"
+version = "0.1.0"
+description = "pyclig example: config files, profiles & their precedence."
+requires-python = ">=3.11"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = ["click", "pyclig"]
+
+[project.scripts]
+greeter = "greeter:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["greeter.py"]
+
+[tool.uv.sources]
+pyclig = { workspace = true }

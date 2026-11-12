@@ -11,6 +11,7 @@ members = [
     "checkup",
     "depot",
     "fruit",
+    "greeter",
     "hello",
     "pantry",
     "pyclig",
@@ -319,6 +320,21 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest", specifier = "~=9.0" }]
+
+[[package]]
+name = "greeter"
+version = "0.1.0"
+source = { editable = "examples/06-config" }
+dependencies = [
+    { name = "click" },
+    { name = "pyclig" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "click" },
+    { name = "pyclig", editable = "." },
+]
 
 [[package]]
 name = "hello"
