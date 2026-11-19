@@ -1,15 +1,6 @@
----
-context-hierarchy: Layer 0
-context-hierarchy-role: Global identity
-immutable: false
-recommended-context-tokens: 900
----
-
 # pyclig [`pyclig`]
 
 A Python Click wrapper with [Command Line Interface Guidelines (CLIG)](https://clig.dev/) paradigms.
-
-This project adheres to [YAGNI](docs/guidance/standard-yagni.md) principles.
 
 ## Design rules
 
@@ -23,18 +14,16 @@ This project adheres to [YAGNI](docs/guidance/standard-yagni.md) principles.
 - Consoles are created per run & passed in, with markup, emoji & highlighting off. One STDERR
   console per run is shared by logging & live displays.
 - Messages are printed as `rich.text.Text`, never parsed as markup - they quote user input.
-- CLIG is the requirement. Every actionable rule has a row in `docs/clig-coverage.md`. Interfaces
-  are designed against the whole table and built iteratively on `docs/roadmap.md`, so that adding
-  a rule stays additive. dkais & pkgdx are integration targets, not gatekeepers.
+- CLIG is the requirement. Every actionable rule has a row in `docs/clig-coverage.md`.
+- Keep `docs/cli-standard.md` and `docs/clig-coverage.md` in step with code changes.
 
-## Context hierarchy
+## Commands
 
-Markdown files declare their layer in frontmatter - read
-[standard-context-hierarchy.md](docs/guidance/standard-context-hierarchy.md) before creating or
-editing one. Files marked `immutable: true` are never edited in passing: propose the change and
-wait for approval.
+- `uv run pytest -v` - Run the test suite
+- `uv run pytest -m conformance -v` - Run only the `conformance` tier
+- `uv run prek run --all-files` - Run the formatters, linters and type checks
 
-## Reference
+## Conventions
 
-Standards and references live in `docs/guidance` as `standard-*.md` and `toolchain-*.md` files
-(Layer 3). Load a file when its subject is in play, which can be determined by the frontmatter.
+- Implement only what is asked; prefer the standard library, then an existing dependency, and ask
+  before adding one.

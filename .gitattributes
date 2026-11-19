@@ -1,1 +1,15 @@
 * text=auto eol=lf
+
+# Binaries
+*.mp4  binary
+*.webp binary
+
+# Generated files
+uv.lock                   gitlab-generated linguist-generated
+.secrets.baseline         gitlab-generated linguist-generated
+**/.secrets.baseline      gitlab-generated linguist-generated
+scripts/cli_styles/out/** gitlab-generated linguist-generated
+
+# Enable better hunk headers in `git diff`
+*.py diff=python
+*.md diff=markdown

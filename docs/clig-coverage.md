@@ -1,11 +1,3 @@
----
-context-hierarchy: Layer 3
-context-hierarchy-role: Reference material
-immutable: false
-recommended-context-tokens: 2500
-tags: [CLI, CLIG, coverage, conformance]
----
-
 # CLIG coverage
 
 Attribution: the rules paraphrase the [Command Line Interface Guidelines](https://clig.dev/) by
@@ -16,7 +8,8 @@ file is shared under the same licence.
 CLIG is the requirement. Every actionable rule has a row here, and the IDs are the one namespace
 shared by `pyclig.testing.assert_conforms`, `docs/roadmap.md` and the CHANGELOG. Status is as of
 1.0.0; the roadmap says which release closes a gap. Evidence names the code or test that shows it,
-so it stays true across line moves.
+so it stays true across line moves. [The CLI standard](cli-standard.md) states the rules a pyclig
+CLI follows and marks the ones the kit checks.
 
 Status: `done` means pyclig delivers it, `done (click)` or `done (rich)` that a dependency does;
 `partial` means part of the rule; `gap` means nothing yet.

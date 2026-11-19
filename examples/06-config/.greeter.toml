@@ -1,0 +1,7 @@
+region = "eu"
+
+[hello]
+name = "Ada"
+
+[profiles.loud.hello]
+shout = true

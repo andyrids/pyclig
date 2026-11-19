@@ -12,63 +12,163 @@ primitives, run flags & standard flags. Options, arguments & types are plain cli
 
 CLIG is treated as a contract: a CLI conforms with no application code wherever `pyclig` can do
 it alone, gets one obvious interface for each rule that needs application input, and
-`pyclig.testing.assert_conforms` reports the rest by rule ID. `docs/clig-coverage.md` has the
-rule-by-rule status and `docs/roadmap.md` what each release adds. Pin `pyclig~=1.0`: from 1.0 a
-minor release only adds - see Stability.
+`pyclig.testing.assert_conforms` reports the rest by rule ID.
+[`docs/cli-standard.md`](docs/cli-standard.md) states the rules a pyclig CLI follows and
+`docs/clig-coverage.md` has the rule-by-rule status. Pin `pyclig~=1.0`: from 1.0 a minor release
+only adds - see Stability.
 
-## Usage
+## Quickstart
+
+Add `pyclig` to a project:
+
+```bash
+uv add pyclig
+```
+
+Save this as `hello.py`:
 
 ```python
 import click
+
 import pyclig
 
-from dkais import exceptions
 
-
-@pyclig.group(
-    "dkais",
-    short_help="DMA AIS data manager",
-    examples=["dkais list --start 2026-10"],
-    errors=(exceptions.Error,),
-    epilog="For more information see https://github.com/andyrids/dkais.",
+@pyclig.command("hello", examples=["hello --name Ada --shout\nHELLO ADA"])
+@click.option(
+    "--name", default="world", show_default=True, help="Who to greet."
 )
-def cli() -> None:
-    """Download DMA AIS archives and convert them to Parquet."""
-
-
-@cli.command("list", examples=["dkais list --start 2026-10 --json"])
-@pyclig.options.json_output()
-@pyclig.options.plain()
-@click.option("--start", metavar="DATE", help="The range start.")
-@pyclig.pass_context
-def list_(ctx: pyclig.Context, start: str | None, json_output: bool) -> int:
-    """List bucket archives & local state."""
-    if ctx.format == "human":
-        ctx.out.print(f"from {start}")
-    else:
-        click.echo(f"start\t{start}")
-    return pyclig.ExitCode.OK
+@click.option("--shout", is_flag=True, help="Greet in capitals.")
+def cli(name: str, shout: bool) -> None:
+    """Greet someone by name."""
+    greeting = f"hello {name}"
+    click.echo(greeting.upper() if shout else greeting)
 
 
 if __name__ == "__main__":
     cli()
 ```
 
-Point the entry point at the group: `[project.scripts] dkais = "dkais.__main__:cli"`. Always
+Run it:
+
+```console
+$ uv run hello.py --name Ada --shout
+HELLO ADA
+$ uv run hello.py --nme Ada
+error: No such option '--nme'. Did you mean '--name'?
+
+USAGE:
+  hello [options]
+
+Try 'hello --help' for more information.
+```
+
+The typo exits 2, with the error on STDERR. `uv run hello.py -h` shows the help: usage, the
+description, the example with its output, the options, and the global options every command
+gets (`-v`, `-d`, `-q`, `--no-color` and `--no-input`). Nothing in `hello.py` asks for them.
+
+## Usage
+
+A group of commands, with records printed in the run's format and an expected error:
+
+```python
+import click
+
+import pyclig
+
+BOOKS = [
+    {"title": "Emma", "year": 1815},
+    {"title": "Dune", "year": 1965},
+]
+
+
+class ShelfError(Exception):
+    """An expected failure: one `error:` line on STDERR, exit 1."""
+
+
+@pyclig.group(
+    "shelf",
+    short_help="A small bookshelf",
+    examples=["shelf list --since 1900", "shelf show Dune"],
+    errors=(ShelfError,),
+)
+def cli() -> None:
+    """List the books on a shelf and look one up."""
+
+
+@cli.command("list", examples=["shelf list --json"])
+@pyclig.options.json_output()
+@pyclig.options.plain()
+@click.option(
+    "--since", type=int, metavar="YEAR", help="Only books from YEAR on."
+)
+@pyclig.pass_context
+def list_(ctx: pyclig.Context, json_output: bool, since: int | None) -> None:
+    """List the books."""
+    rows = [book for book in BOOKS if since is None or book["year"] >= since]
+    ctx.emit(rows, caption=f"{len(rows)} of {len(BOOKS)} books")
+
+
+@cli.command(no_args_is_help=True, examples=["shelf show Dune\nDune (1965)"])
+@click.argument("title")
+def show(title: str) -> None:
+    """Show one book."""
+    for book in BOOKS:
+        if book["title"] == title:
+            click.echo(f"{book['title']} ({book['year']})")
+            return
+    raise ShelfError(f"no book titled {title}")
+
+
+if __name__ == "__main__":
+    cli()
+```
+
+`ctx.emit` picks the format, so the command has no branch for it. On a terminal it prints a
+table with the caption under it:
+
+```console
+$ shelf list
+  title   year
+ ──────────────
+  Emma    1815
+  Dune    1965
+
+  2 of 2 books
+```
+
+Piped or with `--plain` it prints tab-separated rows and sends the caption to STDERR. With
+`--json` it prints a JSON list and no caption. `shelf show Ulysses` prints
+`error: no book titled Ulysses` and exits 1, because `ShelfError` is in `errors=`. A command that
+returns None exits 0. Return an `int` or a `pyclig.ExitCode` for any other code.
+
+Point the entry point at the group: `[project.scripts] shelf = "shelf:cli"`. Always
 name the group - the name is the program name, also under `python -m`, and sets the shell
-completion variable (`_DKAIS_COMPLETE`). A single-command tool uses `pyclig.command()` instead,
+completion variable (`_SHELF_COMPLETE`). A single-command tool uses `pyclig.command()` instead,
 and gets everything a command of a group does.
 
 Commands take `examples=` too: their `--help` leads with them under `EXAMPLES:`. An example
-may show its output on the lines after the invocation, which print indented under it:
-
-```python
-@cli.command(examples=["dkais count --start 2026-10\n31 archives"])
-```
+may show its output on the lines after the invocation, which print indented under it, as the
+`show` example does.
 
 `docs="https://..."` on a group or a command adds a closing `LEARN MORE:` section to its full
 help. The root's also lists `Issues`, the bug tracker in the distribution's `Project-URL`
 metadata.
+
+## Examples
+
+[`examples/`](examples/README.md) holds six small tools, each a uv workspace member that shows
+one feature. Work through them in order:
+
+| Example | Script | Shows |
+| --- | --- | --- |
+| `01-hello` | `hello` | A single command, its help, version and run flags |
+| `02-errors` | `pantry` | A group, its errors and exit codes |
+| `03-output` | `fruit` | Human, plain and JSON output from one call, plus a test |
+| `04-feedback` | `checkup` | Feedback on STDERR, logging and quiet mode |
+| `05-prompts` | `depot` | Confirmations, secrets and the non-TTY refusal |
+| `06-config` | `greeter` | Config files, profiles and precedence |
+
+The sections below are the reference, one feature each.
 
 ## What every command gets
 
