@@ -28,8 +28,3 @@ coverage *FLAGS:
 [group("DEV")]
 git-prune:
     git gc --prune=now --aggressive
-
-[doc("Symlink `AGENTS.md` -> `CLAUDE.md`")]
-[group("DEV")]
-symlink-agents:
-    @uv run python -c "import pathlib; p=pathlib.Path('CLAUDE.md'); p.unlink(missing_ok=True); p.symlink_to('AGENTS.md')"
