@@ -1,5 +1,19 @@
 #:schema https://raw.githubusercontent.com/j178/prek/refs/heads/master/prek.schema.json
 
+default_install_hook_types = ["pre-commit", "commit-msg"]
+default_stages = ["pre-commit"]
+
+# REMOTE REPO HOOKS
+
+[[repos]]
+repo = "https://github.com/compilerla/conventional-pre-commit"
+rev = "v4.5.0"
+
+[[repos.hooks]]
+id = "conventional-pre-commit"
+name = "Commit [Conventional]"
+args = []
+
 # BUILTIN REPO HOOKS
 
 [[repos]]
