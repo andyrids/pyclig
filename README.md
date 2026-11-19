@@ -12,9 +12,10 @@ primitives, run flags & standard flags. Options, arguments & types are plain cli
 
 CLIG is treated as a contract: a CLI conforms with no application code wherever `pyclig` can do
 it alone, gets one obvious interface for each rule that needs application input, and
-`pyclig.testing.assert_conforms` reports the rest by rule ID. `docs/clig-coverage.md` has the
-rule-by-rule status and `docs/roadmap.md` what each release adds. Pin `pyclig~=1.0`: from 1.0 a
-minor release only adds - see Stability.
+`pyclig.testing.assert_conforms` reports the rest by rule ID.
+[`docs/cli-standard.md`](docs/cli-standard.md) states the rules a pyclig CLI follows,
+`docs/clig-coverage.md` has the rule-by-rule status and `docs/roadmap.md` what each release
+adds. Pin `pyclig~=1.0`: from 1.0 a minor release only adds - see Stability.
 
 ## Usage
 
