@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `examples/`: six uv workspace members, one pyclig feature each
+- `docs/cli-standard.md`: the CLI standard, marking the rules `assert_conforms` checks
+
+### Removed
+
+- `docs/guidance/`: superseded by the CLI standard & shared rules
 
 ## [1.0.0] - 2026-11-11
 
